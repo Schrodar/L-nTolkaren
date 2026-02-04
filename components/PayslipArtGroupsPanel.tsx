@@ -18,11 +18,11 @@ function weekdayMonFirst(date: Date) {
 
 function MonthCalendar({
   monthISO,
-  markedDaysISO,
+  overtimeBreakdownByDayISO,
   caption,
 }: {
   monthISO: string;
-  markedDaysISO: string[];
+  overtimeBreakdownByDayISO?: Record<string, { minutes301?: number; minutes311?: number }>;
   caption?: string;
 }) {
   const [y, m] = monthISO.split('-').map(Number);
@@ -30,7 +30,44 @@ function MonthCalendar({
   const first = new Date(y, m - 1, 1);
   const offset = weekdayMonFirst(first);
 
-  const markSet = React.useMemo(() => new Set(markedDaysISO), [markedDaysISO]);
+  const [hoveredISO, setHoveredISO] = React.useState<string | null>(null);
+  const [selectedISO, setSelectedISO] = React.useState<string | null>(null);
+
+  const breakdown = overtimeBreakdownByDayISO ?? {};
+
+  const minutesForISO = React.useCallback(
+    (iso: string): { total: number; minutes301: number; minutes311: number } => {
+      const b = breakdown[iso] ?? {};
+      const minutes301 = typeof b.minutes301 === 'number' && Number.isFinite(b.minutes301) ? b.minutes301 : 0;
+      const minutes311 = typeof b.minutes311 === 'number' && Number.isFinite(b.minutes311) ? b.minutes311 : 0;
+      return { total: minutes301 + minutes311, minutes301, minutes311 };
+    },
+    [breakdown]
+  );
+
+  const fmtHours = React.useMemo(
+    () => new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 2 }),
+    []
+  );
+
+  function minutesToLabel(minutes: number) {
+    const hoursDec = minutes / 60;
+    const h = Math.floor(minutes / 60);
+    const min = Math.abs(minutes % 60);
+    return `${fmtHours.format(hoursDec)} h (${h} h ${min} min)`;
+  }
+
+  const selectedInfo = selectedISO ? minutesForISO(selectedISO) : { total: 0, minutes301: 0, minutes311: 0 };
+  const isModalOpen = !!selectedISO && selectedInfo.total > 0;
+
+  React.useEffect(() => {
+    if (!isModalOpen) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') setSelectedISO(null);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isModalOpen]);
 
   const cells: Array<{ day?: number; iso?: string }> = [];
   for (let i = 0; i < offset; i++) cells.push({});
@@ -44,7 +81,8 @@ function MonthCalendar({
     new Date(y, m - 1, 1)
   );
 
-  const markedCount = markedDaysISO.filter((d) => d.startsWith(monthISO)).length;
+  const markedCount = Object.keys(breakdown).filter((d) => d.startsWith(monthISO) && minutesForISO(d).total > 0)
+    .length;
 
   return (
     <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
@@ -69,19 +107,66 @@ function MonthCalendar({
 
       <div className="mt-2 grid grid-cols-7 gap-2">
         {cells.map((c, idx) => {
-          const isMarked = c.iso ? markSet.has(c.iso) : false;
+          const minutesInfo = c.iso ? minutesForISO(c.iso) : { total: 0, minutes301: 0, minutes311: 0 };
+          const hasMinutes = minutesInfo.total > 0;
+          const isMarked = hasMinutes;
+          const hoverTitle = c.iso ? c.iso : '';
+          const isHovered = !!c.iso && hoveredISO === c.iso;
           return (
             <div
               key={idx}
               className={[
-                'h-9 rounded-lg border text-sm flex items-center justify-center',
+                'relative h-9 rounded-lg border text-sm flex items-center justify-center',
                 c.day ? 'border-gray-200' : 'border-transparent',
                 isMarked
-                  ? 'bg-indigo-50 border-indigo-200 text-indigo-900 font-semibold'
+                  ? 'bg-red-50 border-red-200 text-gray-900 font-semibold'
                   : 'bg-white text-gray-700',
               ].join(' ')}
-              title={c.iso ?? ''}
+              title={hoverTitle}
+              onMouseEnter={() => {
+                if (c.iso && hasMinutes) setHoveredISO(c.iso);
+              }}
+              onMouseLeave={() => {
+                if (c.iso && hoveredISO === c.iso) setHoveredISO(null);
+              }}
+              onClick={() => {
+                if (c.iso && hasMinutes) setSelectedISO(c.iso);
+              }}
+              role={c.iso && hasMinutes ? 'button' : undefined}
+              tabIndex={c.iso && hasMinutes ? 0 : undefined}
+              onKeyDown={(e) => {
+                if (!c.iso || !hasMinutes) return;
+                if (e.key === 'Enter' || e.key === ' ') setSelectedISO(c.iso);
+              }}
             >
+              {isMarked ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-600"
+                />
+              ) : null}
+
+              {isHovered && hasMinutes ? (
+                <div
+                  role="tooltip"
+                  className={[
+                    'absolute left-1/2 top-full z-10 mt-2 w-[190px] -translate-x-1/2 rounded-xl border',
+                    'border-gray-200 bg-white px-3 py-2 text-left text-xs text-gray-800 shadow-lg',
+                  ].join(' ')}
+                >
+                  <div className="text-[11px] font-semibold text-gray-900">Övertid</div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">{c.iso}</div>
+                  <div className="mt-1 font-semibold text-gray-900">{minutesToLabel(minutesInfo.total)}</div>
+                  <div className="mt-1 text-[11px] text-gray-600">
+                    301 utbetald: {minutesInfo.minutes301 ? minutesToLabel(minutesInfo.minutes301) : '–'}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">
+                    311 komp: {minutesInfo.minutes311 ? minutesToLabel(minutesInfo.minutes311) : '–'}
+                  </div>
+                  <div className="mt-1 text-[11px] text-gray-500">Klicka för mer info</div>
+                </div>
+              ) : null}
+
               {c.day ?? ''}
             </div>
           );
@@ -89,8 +174,51 @@ function MonthCalendar({
       </div>
 
       <div className="mt-3 text-[11px] text-gray-500">
-        Markerar alla datum där ART 315 förekommer (enligt datumintervall i raden).
+        Röd prick = övertid (ART 301 utbetald + ART 311 till komp). Hover visar timmar, klick öppnar popup.
       </div>
+
+      {isModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setSelectedISO(null);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Övertid detaljer"
+            className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Övertid</div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">{selectedISO}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedISO(null)}
+                className="rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Stäng
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+              <div className="text-xs font-semibold text-gray-700">Tid</div>
+              <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900">
+                {minutesToLabel(selectedInfo.total)}
+              </div>
+              <div className="mt-2 text-xs text-gray-700">
+                <div>ART 301 (utbetald): {selectedInfo.minutes301 ? minutesToLabel(selectedInfo.minutes301) : '–'}</div>
+                <div>ART 311 (till komp): {selectedInfo.minutes311 ? minutesToLabel(selectedInfo.minutes311) : '–'}</div>
+              </div>
+            </div>
+
+            <div className="mt-3 text-[11px] text-gray-500">Tips: Tryck ESC för att stänga.</div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -120,6 +248,34 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const art315Hours = art315 ? Math.floor(art315.totalMinutes / 60) : 0;
   const art315Minutes = art315 ? Math.abs(art315.totalMinutes % 60) : 0;
 
+  const art311 = overview.art311;
+  const art311Hours = art311 ? Math.floor(art311.totalMinutes / 60) : 0;
+  const art311Minutes = art311 ? Math.abs(art311.totalMinutes % 60) : 0;
+
+  const art301 = overview.art301;
+  const art301Hours = art301 ? Math.floor(art301.totalMinutes / 60) : 0;
+  const art301Minutes = art301 ? Math.abs(art301.totalMinutes % 60) : 0;
+
+  const overtimeBreakdownByDayISO = React.useMemo(() => {
+    const out: Record<string, { minutes301?: number; minutes311?: number }> = {};
+    if (art301?.minutesByDateISO) {
+      for (const [iso, minutes] of Object.entries(art301.minutesByDateISO)) {
+        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        out[iso] = { ...(out[iso] ?? {}), minutes301: (out[iso]?.minutes301 ?? 0) + minutes };
+      }
+    }
+    if (art311?.minutesByDateISO) {
+      for (const [iso, minutes] of Object.entries(art311.minutesByDateISO)) {
+        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        out[iso] = { ...(out[iso] ?? {}), minutes311: (out[iso]?.minutes311 ?? 0) + minutes };
+      }
+    }
+    return out;
+  }, [art301?.minutesByDateISO, art311?.minutesByDateISO]);
+
+  const calendarMonthISO = art301?.monthISO ?? art311?.monthISO ?? art315?.monthISO ?? null;
+  const hasAnyOvertime = !!Object.keys(overtimeBreakdownByDayISO).length;
+
   return (
     <section className="w-full rounded-2xl border border-gray-200 bg-white shadow-sm">
       <div className="border-b border-gray-100 p-5">
@@ -134,15 +290,19 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
 
       <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-3">
         <div>
-          {art315?.monthISO ? (
+          {calendarMonthISO ? (
             <MonthCalendar
-              monthISO={art315.monthISO}
-              markedDaysISO={art315.datesISO}
-              caption="Markerar datum med ART 315"
+              monthISO={calendarMonthISO}
+              overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
+              caption={
+                hasAnyOvertime
+                  ? 'Markerar övertid: ART 301 (utbetald) + ART 311 (till komp)'
+                  : 'Inga övertidsrader (ART 301/311) hittades i denna PDF.'
+              }
             />
           ) : (
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
-              Kunde inte avgöra månad för kalender (inga datum i ART 315).
+              Kunde inte avgöra månad för kalender (inga datum i ART 311/315).
             </div>
           )}
         </div>
@@ -170,6 +330,40 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               {art315?.datesISO.length ? (
                 <div className="mt-1 text-xs text-gray-500">Datum markerade: {art315.datesISO.length}</div>
               ) : null}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Övertid till komp (311)</div>
+              {art311 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">ART 311</div>
+                  <div className="tabular-nums font-semibold text-gray-900">
+                    {formatInt(art311Hours)} h {formatInt(art311Minutes)} min
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 311-rader.</div>
+              )}
+              {art311?.datesISO.length ? (
+                <div className="mt-1 text-xs text-gray-500">Datum markerade: {art311.datesISO.length}</div>
+              ) : null}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Övertid (301, utbetald)</div>
+              {art301 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">ART 301</div>
+                  <div className="tabular-nums font-semibold text-gray-900">
+                    {formatInt(art301Hours)} h {formatInt(art301Minutes)} min
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 301-rader.</div>
+              )}
+              <div className="mt-1 text-xs text-gray-500">
+                301 = övertid som betalas ut. 311 = övertid som sparas till kompsaldo.
+              </div>
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
