@@ -19,10 +19,12 @@ function weekdayMonFirst(date: Date) {
 function MonthCalendar({
   monthISO,
   overtimeBreakdownByDayISO,
+  workDaysISO,
   caption,
 }: {
   monthISO: string;
   overtimeBreakdownByDayISO?: Record<string, { minutes301?: number; minutes311?: number }>;
+  workDaysISO?: string[];
   caption?: string;
 }) {
   const [y, m] = monthISO.split('-').map(Number);
@@ -34,6 +36,7 @@ function MonthCalendar({
   const [selectedISO, setSelectedISO] = React.useState<string | null>(null);
 
   const breakdown = overtimeBreakdownByDayISO ?? {};
+  const workSet = React.useMemo(() => new Set(workDaysISO ?? []), [workDaysISO]);
 
   const minutesForISO = React.useCallback(
     (iso: string): { total: number; minutes301: number; minutes311: number } => {
@@ -81,8 +84,13 @@ function MonthCalendar({
     new Date(y, m - 1, 1)
   );
 
-  const markedCount = Object.keys(breakdown).filter((d) => d.startsWith(monthISO) && minutesForISO(d).total > 0)
+  const overtimeCount = Object.keys(breakdown).filter((d) => d.startsWith(monthISO) && minutesForISO(d).total > 0)
     .length;
+  const workCount = (workDaysISO ?? []).filter((d) => d.startsWith(monthISO)).length;
+  const markedCount = new Set([
+    ...Object.keys(breakdown).filter((d) => minutesForISO(d).total > 0),
+    ...(workDaysISO ?? []),
+  ]).size;
 
   return (
     <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
@@ -110,6 +118,7 @@ function MonthCalendar({
           const minutesInfo = c.iso ? minutesForISO(c.iso) : { total: 0, minutes301: 0, minutes311: 0 };
           const hasMinutes = minutesInfo.total > 0;
           const isMarked = hasMinutes;
+          const isWorkDay = !!c.iso && workSet.has(c.iso);
           const hoverTitle = c.iso ? c.iso : '';
           const isHovered = !!c.iso && hoveredISO === c.iso;
           return (
@@ -120,7 +129,9 @@ function MonthCalendar({
                 c.day ? 'border-gray-200' : 'border-transparent',
                 isMarked
                   ? 'bg-red-50 border-red-200 text-gray-900 font-semibold'
-                  : 'bg-white text-gray-700',
+                  : isWorkDay
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-950 font-semibold'
+                    : 'bg-white text-gray-700',
               ].join(' ')}
               title={hoverTitle}
               onMouseEnter={() => {
@@ -175,6 +186,13 @@ function MonthCalendar({
 
       <div className="mt-3 text-[11px] text-gray-500">
         Röd prick = övertid (ART 301 utbetald + ART 311 till komp). Hover visar timmar, klick öppnar popup.
+        <span className="ml-2">Grön dag = arbete (ART 315).</span>
+      </div>
+
+      <div className="mt-1 text-[11px] text-gray-500">
+        Denna månad: övertid <span className="font-semibold text-gray-700">{overtimeCount}</span>, arbete{' '}
+        <span className="font-semibold text-gray-700">{workCount}</span>, totalt markerade{' '}
+        <span className="font-semibold text-gray-700">{markedCount}</span>.
       </div>
 
       {isModalOpen ? (
@@ -244,6 +262,10 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 }).format(n);
   }, []);
 
+  const formatHours = React.useCallback((n: number) => {
+    return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 2 }).format(n);
+  }, []);
+
   const art315 = overview.art315;
   const art315Hours = art315 ? Math.floor(art315.totalMinutes / 60) : 0;
   const art315Minutes = art315 ? Math.abs(art315.totalMinutes % 60) : 0;
@@ -255,6 +277,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const art301 = overview.art301;
   const art301Hours = art301 ? Math.floor(art301.totalMinutes / 60) : 0;
   const art301Minutes = art301 ? Math.abs(art301.totalMinutes % 60) : 0;
+
+  const art320 = overview.art320;
 
   const overtimeBreakdownByDayISO = React.useMemo(() => {
     const out: Record<string, { minutes301?: number; minutes311?: number }> = {};
@@ -294,6 +318,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
             <MonthCalendar
               monthISO={calendarMonthISO}
               overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
+              workDaysISO={art315?.datesISO ?? []}
               caption={
                 hasAnyOvertime
                   ? 'Markerar övertid: ART 301 (utbetald) + ART 311 (till komp)'
@@ -367,11 +392,43 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Komp → pengar (320)</div>
+              {art320 ? (
+                <>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Timmar</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatHours(art320.hoursTotal)} h</div>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Timbelopp</div>
+                    <div className="tabular-nums font-semibold text-gray-900">
+                      {typeof art320.sekPerHour === 'number' ? formatSek(art320.sekPerHour) : 'Varierar'}
+                    </div>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Beräknat utbetalt</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatSek(art320.sekTotalComputed)}</div>
+                  </div>
+                  {typeof art320.sekTotalFromRow === 'number' ? (
+                    <div className="mt-1 text-[11px] text-gray-500">
+                      Enligt raden: {formatSek(art320.sekTotalFromRow)}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 320-rader.</div>
+              )}
+              <div className="mt-1 text-xs text-gray-500">
+                320 = omvandling av komptid till pengar: timmar × timbelopp.
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
               <div className="text-xs font-semibold text-gray-700">Maskinskötseltillägg (2101)</div>
               {overview.art2101 ? (
                 <>
                   <div className="mt-1 flex items-center justify-between">
-                    <div className="text-gray-600">Antal rader</div>
+                    <div className="text-gray-600">Antal dagar</div>
                     <div className="tabular-nums font-semibold text-gray-900">{overview.art2101.rowsCount}</div>
                   </div>
                   <div className="mt-1 flex items-center justify-between">

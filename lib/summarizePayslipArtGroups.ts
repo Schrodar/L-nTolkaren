@@ -38,10 +38,20 @@ export type ArtSummary2101 = {
   sekTotal: number;
 };
 
+export type ArtSummary320 = {
+  art: '320';
+  rowsCount: number;
+  hoursTotal: number;
+  sekPerHour: number | null;
+  sekTotalComputed: number;
+  sekTotalFromRow: number | null;
+};
+
 export type PayslipArtOverview = {
   art315?: ArtSummary315;
   art311?: ArtSummary311;
   art301?: ArtSummary301;
+  art320?: ArtSummary320;
   art2101?: ArtSummary2101;
   byArt: Array<{
     art: string;
@@ -229,6 +239,38 @@ function parse301HoursFromRawRow(raw: string): number | null {
   return null;
 }
 
+function parse320FromRawRow(raw: string): { hours: number; sekPerHour: number; sekTotalFromRow?: number } | null {
+  const s = normalizeSpaces(raw);
+  const m = s.match(/\bpengar\b/i);
+  if (!m || m.index == null) return null;
+
+  const after = s.slice(m.index + m[0].length).trim();
+  if (!after) return null;
+
+  const tokens = after.match(/[-+]?\d+(?:\s\d{3})*(?:,\d{1,2})?/g) || [];
+  if (!tokens[0] || !tokens[1]) return null;
+
+  const hours = parseSwedishNumber(tokens[0].trim());
+  const sekPerHour = parseSwedishNumber(tokens[1].trim());
+  if (typeof hours !== 'number' || typeof sekPerHour !== 'number') return null;
+  if (!Number.isFinite(hours) || !Number.isFinite(sekPerHour)) return null;
+  if (hours <= 0 || hours > 500) return null;
+  if (sekPerHour <= 0 || sekPerHour > 10000) return null;
+
+  // Ofta står totalen som tredje token, men det kan även komma fler siffror efter.
+  let sekTotalFromRow: number | undefined;
+  for (let i = tokens.length - 1; i >= 2; i--) {
+    const n = parseSwedishNumber(tokens[i].trim());
+    if (typeof n !== 'number') continue;
+    if (n > sekPerHour && n > hours) {
+      sekTotalFromRow = n;
+      break;
+    }
+  }
+
+  return { hours, sekPerHour, sekTotalFromRow };
+}
+
 export function parseArtRow(raw: string): ParsedArtRow | null {
   const s = normalizeSpaces(raw);
   const artMatch = s.match(/^(\d{2,5})\s+/);
@@ -262,6 +304,7 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
   const art315Group = artGroups.find((g) => g.art === '315');
   const art311Group = artGroups.find((g) => g.art === '311');
   const art301Group = artGroups.find((g) => g.art === '301');
+  const art320Group = artGroups.find((g) => g.art === '320');
   const art2101Group = artGroups.find((g) => g.art === '2101');
 
   const overview: PayslipArtOverview = { byArt };
@@ -377,6 +420,49 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
       rowsCount: art2101Group.rows.length,
       sekTotal,
     };
+  }
+
+  // 320: Omvandling av innestående komp till pengar.
+  // Format: "... till pengar <timmar> <timbelopp> ... <utbetalt>". Vi tar timmar+timbelopp direkt efter ordet "pengar".
+  if (art320Group?.rows?.length) {
+    let hoursTotal = 0;
+    let sekTotalComputed = 0;
+    let sekTotalFromRow = 0;
+    let fromRowCount = 0;
+
+    let sekPerHour: number | null = null;
+    const sameRateEps = 0.005;
+
+    for (const row of art320Group.rows) {
+      const parsed = parse320FromRawRow(row);
+      if (!parsed) continue;
+
+      hoursTotal += parsed.hours;
+      const computed = Math.round(parsed.hours * parsed.sekPerHour * 100) / 100;
+      sekTotalComputed += computed;
+
+      if (typeof parsed.sekTotalFromRow === 'number') {
+        sekTotalFromRow += parsed.sekTotalFromRow;
+        fromRowCount++;
+      }
+
+      if (sekPerHour == null) {
+        sekPerHour = parsed.sekPerHour;
+      } else if (Math.abs(sekPerHour - parsed.sekPerHour) > sameRateEps) {
+        sekPerHour = null;
+      }
+    }
+
+    if (hoursTotal > 0) {
+      overview.art320 = {
+        art: '320',
+        rowsCount: art320Group.rows.length,
+        hoursTotal,
+        sekPerHour,
+        sekTotalComputed: Math.round(sekTotalComputed * 100) / 100,
+        sekTotalFromRow: fromRowCount ? Math.round(sekTotalFromRow * 100) / 100 : null,
+      };
+    }
   }
 
   return overview;
