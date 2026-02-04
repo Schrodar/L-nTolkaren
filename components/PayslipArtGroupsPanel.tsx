@@ -123,7 +123,6 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   return (
     <section className="w-full rounded-2xl border border-gray-200 bg-white shadow-sm">
       <div className="border-b border-gray-100 p-5">
-        <h2 className="text-lg font-semibold text-gray-900">ART-rader</h2>
         <p className="mt-1 text-sm text-gray-600">
           {fileName ? fileName : '–'}
           <span className="text-gray-400"> • </span>
@@ -152,15 +151,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
           <div className="text-xs uppercase tracking-wide text-gray-500">Översikt</div>
 
           <div className="mt-3 space-y-2 text-sm">
-            <div className="flex items-center justify-between">
-              <div className="text-gray-700">Antal ART-grupper</div>
-              <div className="tabular-nums font-semibold text-gray-900">{artGroups.length}</div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="text-gray-700">Antal ART-rader</div>
-              <div className="tabular-nums font-semibold text-gray-900">{totalRows}</div>
-            </div>
+           
 
             <div className="pt-3" />
 
@@ -209,10 +200,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Info</div>
-          <div className="mt-2 text-sm text-gray-700">
-            Raderna byggs genom att pdf.js text-items grupperas på samma Y-position och sedan grupperas per artnummer.
-          </div>
+          
 
           {typeof lines?.length === 'number' ? (
             <div className="mt-3 text-xs text-gray-600">
