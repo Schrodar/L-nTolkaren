@@ -93,9 +93,31 @@ export function itemsToLines(items: TextItem[], yTolerance: number = 2): Line[] 
 }
 
 export function extractArtLines(lines: Line[]) {
-  return lines
-    .filter((l) => /^\d{2,5}\s/.test(l.text))
-    .map((l) => ({ raw: l.text }));
+  const out: Array<{ raw: string }> = [];
+  const artLineRe = /^(\d{2,5}|K\d{4})\s/;
+  const dateRangeLineRe = /^\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}\b/;
+
+  let currentArt: string | null = null;
+
+  for (const l of lines) {
+    const text = l.text;
+
+    const m = text.match(artLineRe);
+    if (m?.[1]) {
+      currentArt = m[1];
+      out.push({ raw: text });
+      continue;
+    }
+
+    // Some specs split ART 9190 across multiple lines, where the amount row starts with the date range.
+    // We only attach date-range continuations to 9190 to avoid over-grouping unrelated lines.
+    if (currentArt === '9190' && dateRangeLineRe.test(text)) {
+      out.push({ raw: `${currentArt} ${text}` });
+      continue;
+    }
+  }
+
+  return out;
 }
 
 export function groupByArt(lines: { raw: string }[]): ArtGroup[] {

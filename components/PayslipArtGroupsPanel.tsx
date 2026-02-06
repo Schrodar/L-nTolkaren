@@ -25,13 +25,20 @@ function MonthCalendar({
   workDaysISO,
   art302DatesISO,
   semesterDaysISO,
+  vabDaysISO,
+  vabBreakdownByDayISO,
   caption,
 }: {
   monthISO: string;
-  overtimeBreakdownByDayISO?: Record<string, { minutes301?: number; minutes311?: number }>;
+  overtimeBreakdownByDayISO?: Record<
+    string,
+    { minutes301?: number; minutes311?: number; minutes31101?: number; minutes312?: number; minutes31201?: number }
+  >;
   workDaysISO?: string[];
   art302DatesISO?: string[];
   semesterDaysISO?: string[];
+  vabDaysISO?: string[];
+  vabBreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
   caption?: string;
 }) {
   const [y, m] = monthISO.split('-').map(Number);
@@ -46,19 +53,33 @@ function MonthCalendar({
   const workSet = React.useMemo(() => new Set(workDaysISO ?? []), [workDaysISO]);
   const art302Set = React.useMemo(() => new Set(art302DatesISO ?? []), [art302DatesISO]);
   const semesterSet = React.useMemo(() => new Set(semesterDaysISO ?? []), [semesterDaysISO]);
+  const vabSet = React.useMemo(() => new Set(vabDaysISO ?? []), [vabDaysISO]);
+  const vabBreakdown = React.useMemo(() => vabBreakdownByDayISO ?? {}, [vabBreakdownByDayISO]);
 
   const minutesForISO = React.useCallback(
-    (iso: string): { total: number; minutes301: number; minutes311: number } => {
+    (iso: string): { total: number; minutes301: number; minutes311: number; minutes31101: number; minutes312: number; minutes31201: number } => {
       const b = breakdown[iso] ?? {};
       const minutes301 = typeof b.minutes301 === 'number' && Number.isFinite(b.minutes301) ? b.minutes301 : 0;
       const minutes311 = typeof b.minutes311 === 'number' && Number.isFinite(b.minutes311) ? b.minutes311 : 0;
-      return { total: minutes301 + minutes311, minutes301, minutes311 };
+      const minutes31101 = typeof b.minutes31101 === 'number' && Number.isFinite(b.minutes31101) ? b.minutes31101 : 0;
+      const minutes312 = typeof b.minutes312 === 'number' && Number.isFinite(b.minutes312) ? b.minutes312 : 0;
+      const minutes31201 = typeof b.minutes31201 === 'number' && Number.isFinite(b.minutes31201) ? b.minutes31201 : 0;
+
+      // Avoid double-counting qualified comp time when 31201 exists.
+      const qual = minutes31201 > 0 ? minutes31201 : minutes312;
+
+      return { total: minutes301 + minutes311 + minutes31101 + qual, minutes301, minutes311, minutes31101, minutes312, minutes31201 };
     },
     [breakdown]
   );
 
   const fmtHours = React.useMemo(
     () => new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 2 }),
+    []
+  );
+
+  const fmtSek = React.useMemo(
+    () => new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK' }),
     []
   );
 
@@ -69,8 +90,40 @@ function MonthCalendar({
     return `${fmtHours.format(hoursDec)} h (${h} h ${min} min)`;
   }
 
-  const selectedInfo = selectedISO ? minutesForISO(selectedISO) : { total: 0, minutes301: 0, minutes311: 0 };
-  const isModalOpen = !!selectedISO && selectedInfo.total > 0;
+  const selectedInfo = selectedISO
+    ? minutesForISO(selectedISO)
+    : { total: 0, minutes301: 0, minutes311: 0, minutes31101: 0, minutes312: 0, minutes31201: 0 };
+
+  const qualRelationNote = React.useCallback((minutes312: number, minutes31201: number): string | null => {
+    const has312 = minutes312 > 0;
+    const has31201 = minutes31201 > 0;
+
+    if (!has312 && !has31201) return null;
+    if (has31201 && !has312) return 'OBS: 31201 finns men ART 312 saknas för datumet.';
+    if (has312 && !has31201) return 'OBS: ART 312 finns men 31201 (2×) saknas för datumet.';
+
+    const expected = 2 * minutes312;
+    const diff = Math.abs(minutes31201 - expected);
+    const tol = 1; // minute tolerance after rounding
+    if (diff <= tol) return 'OK: 31201 = 2×312 för datumet.';
+
+    // Show both values in hours (decimal) for easier human verification.
+    const h312 = fmtHours.format(minutes312 / 60);
+    const h31201 = fmtHours.format(minutes31201 / 60);
+    const hExpected = fmtHours.format(expected / 60);
+    return `OBS: 31201 stämmer inte mot 2×312 (${h31201} h vs förväntat ${hExpected} h, 312=${h312} h).`;
+  }, [fmtHours]);
+
+  const selectedVab = React.useMemo(() => {
+    if (!selectedISO) return null;
+    const v = vabBreakdown[selectedISO];
+    const hours = typeof v?.hours === 'number' && Number.isFinite(v.hours) ? v.hours : 0;
+    const sek = typeof v?.sek === 'number' && Number.isFinite(v.sek) ? v.sek : 0;
+    if (hours === 0 && sek === 0) return null;
+    return { hours, sek };
+  }, [selectedISO, vabBreakdown]);
+
+  const isModalOpen = !!selectedISO && (selectedInfo.total > 0 || !!selectedVab);
 
   React.useEffect(() => {
     if (!isModalOpen) return;
@@ -101,6 +154,7 @@ function MonthCalendar({
     ...(workDaysISO ?? []),
     ...(art302DatesISO ?? []),
     ...(semesterDaysISO ?? []),
+    ...(vabDaysISO ?? []),
   ]).size;
 
   return (
@@ -126,17 +180,21 @@ function MonthCalendar({
 
       <div className="mt-2 grid grid-cols-7 gap-2">
         {cells.map((c, idx) => {
-          const minutesInfo = c.iso ? minutesForISO(c.iso) : { total: 0, minutes301: 0, minutes311: 0 };
+          const minutesInfo = c.iso
+            ? minutesForISO(c.iso)
+            : { total: 0, minutes301: 0, minutes311: 0, minutes31101: 0, minutes312: 0, minutes31201: 0 };
           const hasMinutes = minutesInfo.total > 0;
           const isWorkDay = !!c.iso && workSet.has(c.iso);
           const hasArt302 = !!c.iso && art302Set.has(c.iso);
           const hasSemester = !!c.iso && semesterSet.has(c.iso);
+          const hasVab = !!c.iso && (vabSet.has(c.iso) || !!vabBreakdown[c.iso]);
           // Spec: ändra inget annat i kalendern, förutom att om ART 302 hamnar under en grön dag (315)
           // så ska den bli röd. Vi triggar alltså inte tooltip/popup för 302 här.
           const forceRedBecause302OnWorkDay = isWorkDay && hasArt302;
 
           const isRedDay = hasMinutes || forceRedBecause302OnWorkDay;
-          const showRedDot = hasMinutes || hasArt302;
+          const showTicktack = hasMinutes;
+          const showRedDot = hasArt302;
           const hoverTitle = c.iso ? c.iso : '';
           const isHovered = !!c.iso && hoveredISO === c.iso;
           return (
@@ -161,18 +219,37 @@ function MonthCalendar({
                 if (c.iso && hoveredISO === c.iso) setHoveredISO(null);
               }}
               onClick={() => {
-                if (c.iso && hasMinutes) setSelectedISO(c.iso);
+                if (c.iso && (hasMinutes || hasVab)) setSelectedISO(c.iso);
               }}
-              role={c.iso && hasMinutes ? 'button' : undefined}
-              tabIndex={c.iso && hasMinutes ? 0 : undefined}
+              role={c.iso && (hasMinutes || hasVab) ? 'button' : undefined}
+              tabIndex={c.iso && (hasMinutes || hasVab) ? 0 : undefined}
               onKeyDown={(e) => {
-                if (!c.iso || !hasMinutes) return;
+                if (!c.iso || (!hasMinutes && !hasVab)) return;
                 if (e.key === 'Enter' || e.key === ' ') setSelectedISO(c.iso);
               }}
             >
-              {hasSemester ? (
-                <span aria-hidden="true" className="absolute right-0.5 -top-1 h-4 w-4">
-                  <Image src="/semester.png" alt="" width={16} height={16} />
+              {hasSemester || hasVab || showTicktack ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-0.5 -top-2 flex items-center gap-0.5"
+                >
+                  {hasSemester ? (
+                    <span className="h-5 w-5 shrink-0">
+                      <Image src="/semester.png" alt="" width={20} height={20} />
+                    </span>
+                  ) : null}
+
+                  {hasVab ? (
+                    <span className="h-5 w-5 shrink-0">
+                      <Image src="/vab.png" alt="" width={20} height={20} />
+                    </span>
+                  ) : null}
+
+                  {showTicktack ? (
+                    <span className="h-5 w-5 shrink-0">
+                      <Image src="/ticktack.png" alt="" width={20} height={20} />
+                    </span>
+                  ) : null}
                 </span>
               ) : null}
 
@@ -200,6 +277,20 @@ function MonthCalendar({
                   <div className="mt-0.5 text-[11px] text-gray-600">
                     311 komp: {minutesInfo.minutes311 ? minutesToLabel(minutesInfo.minutes311) : '–'}
                   </div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">
+                    31101 komp (1,4x): {minutesInfo.minutes31101 ? minutesToLabel(minutesInfo.minutes31101) : '–'}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">
+                    312 kval komp: {minutesInfo.minutes312 ? minutesToLabel(minutesInfo.minutes312) : '–'}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">
+                    31201 kval omräkning (2x): {minutesInfo.minutes31201 ? minutesToLabel(minutesInfo.minutes31201) : '–'}
+                  </div>
+
+                  {(() => {
+                    const note = qualRelationNote(minutesInfo.minutes312, minutesInfo.minutes31201);
+                    return note ? <div className="mt-1 text-[11px] text-amber-700">{note}</div> : null;
+                  })()}
                   <div className="mt-1 text-[11px] text-gray-500">Klicka för mer info</div>
                 </div>
               ) : null}
@@ -211,9 +302,10 @@ function MonthCalendar({
       </div>
 
       <div className="mt-3 text-[11px] text-gray-500">
-        Röd prick = övertid (ART 301 utbetald + ART 311 till komp) samt ART 302 (övertid, kvalificerad). Hover visar timmar, klick öppnar popup.
+        Ticktack-ikon = övertid (ART 301 utbetald + ART 311 till komp + ART 31101/31201 omräkning). Röd prick = ART 302 (övertid, kvalificerad). Hover visar timmar, klick öppnar popup.
         <span className="ml-2">Grön dag = arbete (ART 315).</span>
         <span className="ml-2">Gul markering + ikon = semester (ART 700).</span>
+        <span className="ml-2">Ikon = VAB (ART 810/81001).</span>
       </div>
 
       <div className="mt-1 text-[11px] text-gray-500">
@@ -249,16 +341,40 @@ function MonthCalendar({
               </button>
             </div>
 
-            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
-              <div className="text-xs font-semibold text-gray-700">Tid</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900">
-                {minutesToLabel(selectedInfo.total)}
+            {selectedInfo.total > 0 ? (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+                <div className="text-xs font-semibold text-gray-700">Övertid</div>
+                <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900">
+                  {minutesToLabel(selectedInfo.total)}
+                </div>
+                <div className="mt-2 text-xs text-gray-700">
+                  <div>ART 301 (utbetald): {selectedInfo.minutes301 ? minutesToLabel(selectedInfo.minutes301) : '–'}</div>
+                  <div>ART 311 (till komp): {selectedInfo.minutes311 ? minutesToLabel(selectedInfo.minutes311) : '–'}</div>
+                  <div>ART 31101 (till komp, 1,4x): {selectedInfo.minutes31101 ? minutesToLabel(selectedInfo.minutes31101) : '–'}</div>
+                  <div>ART 312 (kval till komp): {selectedInfo.minutes312 ? minutesToLabel(selectedInfo.minutes312) : '–'}</div>
+                  <div>ART 31201 (kval omräkning, 2x): {selectedInfo.minutes31201 ? minutesToLabel(selectedInfo.minutes31201) : '–'}</div>
+
+                  {(() => {
+                    const note = qualRelationNote(selectedInfo.minutes312, selectedInfo.minutes31201);
+                    return note ? <div className="mt-2 text-amber-700">{note}</div> : null;
+                  })()}
+                </div>
               </div>
-              <div className="mt-2 text-xs text-gray-700">
-                <div>ART 301 (utbetald): {selectedInfo.minutes301 ? minutesToLabel(selectedInfo.minutes301) : '–'}</div>
-                <div>ART 311 (till komp): {selectedInfo.minutes311 ? minutesToLabel(selectedInfo.minutes311) : '–'}</div>
+            ) : null}
+
+            {selectedVab ? (
+              <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="text-xs font-semibold text-gray-700">VAB (81001)</div>
+                <div className="mt-1 flex items-center justify-between text-sm">
+                  <div className="text-gray-600">Tid</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{fmtHours.format(selectedVab.hours)} h</div>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-sm">
+                  <div className="text-gray-600">Summa</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{fmtSek.format(selectedVab.sek)}</div>
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <div className="mt-3 text-[11px] text-gray-500">Tips: Tryck ESC för att stänga.</div>
           </div>
@@ -281,6 +397,55 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     return [...artGroups].sort((a, b) => (b.rows?.length ?? 0) - (a.rows?.length ?? 0));
   }, [artGroups]);
 
+  const artsCoveredInOverview = React.useMemo(() => {
+    const set = new Set<string>();
+
+    if (overview.art315) set.add('315');
+    if (overview.art700) set.add('700');
+
+    if (overview.art311) set.add('311');
+    if (overview.art31101) set.add('31101');
+    if (overview.art312) set.add('312');
+    if (overview.art31201) set.add('31201');
+    if (overview.art301) set.add('301');
+    if (overview.art320) set.add('320');
+
+    if (overview.art2101) set.add('2101');
+    if (overview.art9001) set.add('9001');
+    if (overview.art9002) set.add('9002');
+    if (overview.art0641) set.add('0641');
+    if (overview.art0644) set.add('0644');
+    if (overview.art070) set.add('070');
+    if (overview.art70001) set.add('70001');
+    if (overview.artK7022) set.add('K7022');
+
+    // VAB-card in overview effectively covers both 810 and 81001.
+    if (overview.art810 || overview.art81001) {
+      set.add('810');
+      set.add('81001');
+    }
+
+    // Summary cards that aggregate multiple arts.
+    if (overview.fackforeningsavgift) {
+      set.add('690');
+      set.add('960');
+    }
+    if (overview.friskvard) {
+      set.add('9190');
+      set.add('K5441');
+    }
+
+    return set;
+  }, [overview]);
+
+  const byArtNotInOverview = React.useMemo(() => {
+    return (overview.byArt ?? []).filter((r) => !artsCoveredInOverview.has(r.art));
+  }, [overview.byArt, artsCoveredInOverview]);
+
+  const sortedNotInOverview = React.useMemo(() => {
+    return (sorted ?? []).filter((g) => !artsCoveredInOverview.has(g.art));
+  }, [sorted, artsCoveredInOverview]);
+
   const formatSek = React.useCallback((n: number) => {
     return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK' }).format(n);
   }, []);
@@ -300,6 +465,18 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const art311 = overview.art311;
   const art311Hours = art311 ? Math.floor(art311.totalMinutes / 60) : 0;
   const art311Minutes = art311 ? Math.abs(art311.totalMinutes % 60) : 0;
+
+  const art31101 = overview.art31101;
+  const art31101Hours = art31101 ? Math.floor(art31101.totalMinutes / 60) : 0;
+  const art31101Minutes = art31101 ? Math.abs(art31101.totalMinutes % 60) : 0;
+
+  const art31201 = overview.art31201;
+  const art31201Hours = art31201 ? Math.floor(art31201.totalMinutes / 60) : 0;
+  const art31201Minutes = art31201 ? Math.abs(art31201.totalMinutes % 60) : 0;
+
+  const art312 = overview.art312;
+  const art312Hours = art312 ? Math.floor(art312.totalMinutes / 60) : 0;
+  const art312Minutes = art312 ? Math.abs(art312.totalMinutes % 60) : 0;
 
   const art301 = overview.art301;
   const art301Hours = art301 ? Math.floor(art301.totalMinutes / 60) : 0;
@@ -352,24 +529,103 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
 
   const art320 = overview.art320;
 
+  const art9001 = overview.art9001;
+  const art9002 = overview.art9002;
+  const art0641 = overview.art0641;
+  const art0644 = overview.art0644;
+  const art070 = overview.art070;
+  const art70001 = overview.art70001;
+  const artK7022 = overview.artK7022;
+  const fackforeningsavgift = overview.fackforeningsavgift;
+  const friskvard = overview.friskvard;
+
+  const art81001 = overview.art81001;
+
+  const vabBreakdownByDayISO = React.useMemo(() => {
+    const out: Record<string, { hours?: number; sek?: number }> = {};
+
+    const hoursByDateISO = art81001?.hoursByDateISO ?? overview.art810?.hoursByDateISO;
+    if (hoursByDateISO) {
+      for (const [iso, hours] of Object.entries(hoursByDateISO)) {
+        if (typeof hours !== 'number' || !Number.isFinite(hours) || hours === 0) continue;
+        out[iso] = { ...(out[iso] ?? {}), hours: (out[iso]?.hours ?? 0) + hours };
+      }
+    }
+
+    if (art81001?.sekByDateISO) {
+      for (const [iso, sek] of Object.entries(art81001.sekByDateISO)) {
+        if (typeof sek !== 'number' || !Number.isFinite(sek) || sek === 0) continue;
+        out[iso] = { ...(out[iso] ?? {}), sek: (out[iso]?.sek ?? 0) + sek };
+      }
+    }
+
+    return out;
+  }, [art81001, overview.art810]);
+
+  const vabDaysISO = React.useMemo(() => {
+    const d1 = overview.art810?.datesISO ?? EMPTY_DATES;
+    const d2 = overview.art81001?.datesISO ?? EMPTY_DATES;
+    const set = new Set<string>([...d1, ...d2]);
+    return Array.from(set).sort();
+  }, [overview.art810, overview.art81001]);
+
   const overtimeBreakdownByDayISO = React.useMemo(() => {
-    const out: Record<string, { minutes301?: number; minutes311?: number }> = {};
+    const out: Record<string, { minutes301?: number; minutes311?: number; minutes31101?: number; minutes312?: number; minutes31201?: number }> = {};
     if (art301?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art301.minutesByDateISO)) {
         if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
         out[iso] = { ...(out[iso] ?? {}), minutes301: (out[iso]?.minutes301 ?? 0) + minutes };
       }
     }
+
+    // Om 31101/31201 finns för ett datum så representerar de omräknad komptid.
+    // Då undviker vi dubbelräkning genom att inte lägga till 311 för samma datum.
+    const hasRecalc = new Set<string>();
+    if (art31101?.minutesByDateISO) {
+      for (const [iso, minutes] of Object.entries(art31101.minutesByDateISO)) {
+        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        hasRecalc.add(iso);
+        out[iso] = { ...(out[iso] ?? {}), minutes31101: (out[iso]?.minutes31101 ?? 0) + minutes };
+      }
+    }
+    if (art31201?.minutesByDateISO) {
+      for (const [iso, minutes] of Object.entries(art31201.minutesByDateISO)) {
+        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        hasRecalc.add(iso);
+        out[iso] = { ...(out[iso] ?? {}), minutes31201: (out[iso]?.minutes31201 ?? 0) + minutes };
+      }
+    }
+
+    // 312 (kval till komp): include even if 31201 exists so we can validate relation.
+    if (art312?.minutesByDateISO) {
+      for (const [iso, minutes] of Object.entries(art312.minutesByDateISO)) {
+        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        out[iso] = { ...(out[iso] ?? {}), minutes312: (out[iso]?.minutes312 ?? 0) + minutes };
+      }
+    }
+
     if (art311?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art311.minutesByDateISO)) {
+        if (hasRecalc.has(iso)) continue;
         if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
         out[iso] = { ...(out[iso] ?? {}), minutes311: (out[iso]?.minutes311 ?? 0) + minutes };
       }
     }
-    return out;
-  }, [art301, art311]);
 
-  const calendarMonthISO = art301?.monthISO ?? art311?.monthISO ?? art315?.monthISO ?? overview.art700?.monthISO ?? null;
+    return out;
+  }, [art301, art311, art31101, art31201, art312]);
+
+  const calendarMonthISO =
+    art301?.monthISO ??
+    art31101?.monthISO ??
+    art31201?.monthISO ??
+    art312?.monthISO ??
+    art311?.monthISO ??
+    overview.art81001?.monthISO ??
+    overview.art810?.monthISO ??
+    art315?.monthISO ??
+    overview.art700?.monthISO ??
+    null;
   const hasAnyOvertime = !!Object.keys(overtimeBreakdownByDayISO).length;
   const art302DatesISO = overview.art302?.datesISO ?? [];
   const semesterDaysISO = overview.art700?.datesISO ?? EMPTY_DATES;
@@ -395,6 +651,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               workDaysISO={art315?.datesISO ?? []}
               art302DatesISO={art302DatesISO}
               semesterDaysISO={semesterDaysISO}
+              vabDaysISO={vabDaysISO}
+              vabBreakdownByDayISO={vabBreakdownByDayISO}
               caption={
                 hasAnyOvertime
                   ? 'Markerar övertid: ART 301 (utbetald) + ART 311 (till komp)'
@@ -477,6 +735,35 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Övertid, omräkning (31101 / 31201)</div>
+              {art31101 || art31201 ? (
+                <>
+                  {art31101 ? (
+                    <div className="mt-1 flex items-center justify-between">
+                      <div className="text-gray-600">ART 31101</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {formatInt(art31101Hours)} h {formatInt(art31101Minutes)} min
+                      </div>
+                    </div>
+                  ) : null}
+                  {art31201 ? (
+                    <div className="mt-1 flex items-center justify-between">
+                      <div className="text-gray-600">ART 31201</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {formatInt(art31201Hours)} h {formatInt(art31201Minutes)} min
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 31101/31201-rader.</div>
+              )}
+              <div className="mt-1 text-xs text-gray-500">
+                31101 = okvalificerad omräkning (1,4×). 31201 = helgdag/helg omräkning (2×).
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
               <div className="text-xs font-semibold text-gray-700">Övertid (301, utbetald)</div>
               {art301 ? (
                 <div className="mt-1 flex items-center justify-between">
@@ -526,6 +813,120 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Skatt (9001)</div>
+              {art9001 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Tabellskatt</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(art9001.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 9001-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Skatt (9002)</div>
+              {art9002 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Engångsskatt</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(art9002.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 9002-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Däckmanstillägg (0641)</div>
+              {art0641 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Summa</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(art0641.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 0641-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Rederitillägg (0644)</div>
+              {art0644 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Summa</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(art0644.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 0644-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Månadslön (070)</div>
+              {art070 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Summa</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(art070.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 070-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Semestertillägg (70001)</div>
+              {art70001 ? (
+                <>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Dagar</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatHours(art70001.daysTotal)}</div>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Summa</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatSek(art70001.sekTotalComputed)}</div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 70001-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Semesterersättning direkt rörliga (K7022)</div>
+              {artK7022 ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Summa</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(artK7022.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga K7022-rader.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Fackföreningsavgift</div>
+              {fackforeningsavgift ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Avgift</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(fackforeningsavgift.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade ingen fackföreningsavgift.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Friskvård (9190 + K5441)</div>
+              {friskvard ? (
+                <div className="mt-1 flex items-center justify-between">
+                  <div className="text-gray-600">Summa</div>
+                  <div className="tabular-nums font-semibold text-gray-900">{formatSek(friskvard.sekTotal)}</div>
+                </div>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade ingen friskvård.</div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
               <div className="text-xs font-semibold text-gray-700">Maskinskötseltillägg (2101)</div>
               {overview.art2101 ? (
                 <>
@@ -543,10 +944,31 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               )}
             </div>
 
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Vård av barn (81001)</div>
+              {art81001 ? (
+                <>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Timmar</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatHours(art81001.hoursTotal)} h</div>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Summa</div>
+                    <div className="tabular-nums font-semibold text-gray-900">
+                      {typeof art81001.sekTotalFromRow === 'number' ? formatSek(art81001.sekTotalFromRow) : formatSek(art81001.sekTotalComputed)}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 81001-rader.</div>
+              )}
+              <div className="mt-1 text-xs text-gray-500">810/81001 = VAB. Procenten efter “Tim” ignoreras.</div>
+            </div>
+
             <div className="pt-2 text-[11px] text-gray-500">
               Matchar rader som börjar med artnummer:{' '}
               <span className="font-mono">
-                /^\d{'{'}2,5{'}'}\s/
+                /^(\d{'{'}2,5{'}'}|K\d{'{'}4{'}'})\s/
               </span>
             </div>
           </div>
@@ -571,7 +993,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
           </div>
         </div>
 
-        {overview.byArt.length ? (
+        {byArtNotInOverview.length ? (
           <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white">
             <div className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2">
               <div className="text-xs font-semibold text-gray-600">Art</div>
@@ -579,7 +1001,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               <div className="text-right text-xs font-semibold text-gray-600">Rader</div>
             </div>
             <div className="max-h-[260px] overflow-auto">
-              {overview.byArt.map((r) => (
+              {byArtNotInOverview.map((r) => (
                 <div key={r.art} className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-100 px-4 py-3">
                   <div className="font-mono text-sm text-gray-800">{r.art}</div>
                   <div className="text-sm text-gray-900">
@@ -592,9 +1014,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
           </div>
         ) : null}
 
-        {sorted.length ? (
+        {sortedNotInOverview.length ? (
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {sorted.map((g) => (
+            {sortedNotInOverview.map((g) => (
               <div key={g.art} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
                 <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2">
                   <div className="font-mono text-sm font-semibold text-gray-900">{g.art}</div>
@@ -613,7 +1035,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
           </div>
         ) : (
           <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
-            Inga ART-rader hittades i PDF:en.
+            Inga övriga ART-grupper att visa (allt som hittades visas redan i Översikt).
           </div>
         )}
 
