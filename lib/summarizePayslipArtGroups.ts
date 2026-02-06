@@ -47,11 +47,33 @@ export type ArtSummary320 = {
   sekTotalFromRow: number | null;
 };
 
+export type ArtSummary302 = {
+  art: '302';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+  sekPerHour: number | null;
+  sekTotalComputed: number;
+  sekTotalFromRow: number | null;
+  hoursByDateISO: Record<string, number>;
+  sekByDateISO: Record<string, number>;
+};
+
+export type ArtSummary700 = {
+  art: '700';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+};
+
 export type PayslipArtOverview = {
   art315?: ArtSummary315;
   art311?: ArtSummary311;
   art301?: ArtSummary301;
   art320?: ArtSummary320;
+  art302?: ArtSummary302;
+  art700?: ArtSummary700;
   art2101?: ArtSummary2101;
   byArt: Array<{
     art: string;
@@ -271,6 +293,45 @@ function parse320FromRawRow(raw: string): { hours: number; sekPerHour: number; s
   return { hours, sekPerHour, sekTotalFromRow };
 }
 
+function parse302FromRawRow(
+  raw: string
+): { dateFrom: string; dateTo: string; hours: number; sekPerHour: number; sekTotalFromRow?: number } | null {
+  const s = normalizeSpaces(raw);
+  const dateRe = /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/;
+  const dm = s.match(dateRe);
+  if (!dm || dm.index == null) return null;
+
+  const dateFrom = dm[1];
+  const dateTo = dm[2];
+
+  const after = s.slice(dm.index + dm[0].length).trim();
+  if (!after) return null;
+
+  // För ART 302 förväntar vi oss: <timmar> <timbelopp> <utbetalt>
+  const tokens = after.match(/[-+]?\d+(?:\s\d{3})*(?:,\d{1,2})?/g) || [];
+  if (!tokens[0] || !tokens[1]) return null;
+
+  const hours = parseSwedishNumber(tokens[0].trim());
+  const sekPerHour = parseSwedishNumber(tokens[1].trim());
+  if (typeof hours !== 'number' || typeof sekPerHour !== 'number') return null;
+  if (!Number.isFinite(hours) || !Number.isFinite(sekPerHour)) return null;
+
+  // Rimlighetskontroller: tillåt små decimaler men skydda mot skräp.
+  if (hours < 0 || hours > 500) return null;
+  if (sekPerHour < 0 || sekPerHour > 100000) return null;
+
+  let sekTotalFromRow: number | undefined;
+  for (let i = tokens.length - 1; i >= 2; i--) {
+    const n = parseSwedishNumber(tokens[i].trim());
+    if (typeof n !== 'number') continue;
+    if (!Number.isFinite(n)) continue;
+    sekTotalFromRow = n;
+    break;
+  }
+
+  return { dateFrom, dateTo, hours, sekPerHour, sekTotalFromRow };
+}
+
 export function parseArtRow(raw: string): ParsedArtRow | null {
   const s = normalizeSpaces(raw);
   const artMatch = s.match(/^(\d{2,5})\s+/);
@@ -304,6 +365,8 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
   const art315Group = artGroups.find((g) => g.art === '315');
   const art311Group = artGroups.find((g) => g.art === '311');
   const art301Group = artGroups.find((g) => g.art === '301');
+  const art302Group = artGroups.find((g) => g.art === '302');
+  const art700Group = artGroups.find((g) => g.art === '700');
   const art320Group = artGroups.find((g) => g.art === '320');
   const art2101Group = artGroups.find((g) => g.art === '2101');
 
@@ -419,6 +482,93 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
       art: '2101',
       rowsCount: art2101Group.rows.length,
       sekTotal,
+    };
+  }
+
+  // 302: Övertid, kvalificerad → datumintervall + timmar + timbelopp + total.
+  // Exempelrad: "302 Övertid, kvalificerad 2025-12-31 - 2025-12-31 0,25 474,25 118,56"
+  if (art302Group?.rows?.length) {
+    let hoursTotal = 0;
+    let sekTotalComputed = 0;
+    let sekTotalFromRow = 0;
+    let fromRowCount = 0;
+
+    const dates = new Set<string>();
+    const hoursByDateISO: Record<string, number> = {};
+    const sekByDateISO: Record<string, number> = {};
+
+    let sekPerHour: number | null = null;
+    const sameRateEps = 0.005;
+
+    for (const row of art302Group.rows) {
+      const parsed = parse302FromRawRow(row);
+      if (!parsed) continue;
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      hoursTotal += parsed.hours;
+      const computed = Math.round(parsed.hours * parsed.sekPerHour * 100) / 100;
+      sekTotalComputed += computed;
+
+      if (typeof parsed.sekTotalFromRow === 'number') {
+        sekTotalFromRow += parsed.sekTotalFromRow;
+        fromRowCount++;
+      }
+
+      if (sekPerHour == null) {
+        sekPerHour = parsed.sekPerHour;
+      } else if (Math.abs(sekPerHour - parsed.sekPerHour) > sameRateEps) {
+        sekPerHour = null;
+      }
+
+      const perDayHours = parsed.hours / expanded.length;
+      const perDaySek = computed / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + perDayHours;
+        sekByDateISO[d] = (sekByDateISO[d] ?? 0) + perDaySek;
+      }
+    }
+
+    // Sanity/clamp
+    if (hoursTotal < 0) hoursTotal = 0;
+
+    const datesISO = Array.from(dates).sort();
+    const monthISO = pickBestMonthISO(datesISO);
+
+    overview.art302 = {
+      art: '302',
+      rowsCount: art302Group.rows.length,
+      datesISO,
+      monthISO,
+      hoursTotal,
+      sekPerHour,
+      sekTotalComputed: Math.round(sekTotalComputed * 100) / 100,
+      sekTotalFromRow: fromRowCount ? Math.round(sekTotalFromRow * 100) / 100 : null,
+      hoursByDateISO,
+      sekByDateISO,
+    };
+  }
+
+  // 700: Semester (uttagsordning betald/sparad/obetald) → bara datumintervall som ska markeras i kalendern.
+  // Exempelrad: "700 Semester (...) 2025-12-24 - 2025-12-31 8,00 Kald 0,00"
+  if (art700Group?.rows?.length) {
+    const dates = new Set<string>();
+    for (const row of art700Group.rows) {
+      const parsed = parseArtRow(row);
+      if (!parsed?.dateFrom || !parsed.dateTo) continue;
+      for (const d of expandISODateRange(parsed.dateFrom, parsed.dateTo)) dates.add(d);
+    }
+
+    const datesISO = Array.from(dates).sort();
+    const monthISO = pickBestMonthISO(datesISO);
+
+    overview.art700 = {
+      art: '700',
+      rowsCount: art700Group.rows.length,
+      datesISO,
+      monthISO,
     };
   }
 

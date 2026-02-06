@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Image from 'next/image';
 
 import { parsePayslipArtGroups } from '@/lib/parsePayslipArtGroups';
 import { PayslipArtGroupsPanel } from '@/components/PayslipArtGroupsPanel';
@@ -94,29 +95,14 @@ export default function Page() {
   return (
     <div className="min-h-dvh bg-[#0B1B3A] text-[#F5F7FF]">
       {/* Top bar */}
-      <header className="sticky top-0 z-10 border-b border-white/10 bg-[#0B1B3A]/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <header className="border-b border-white/10 bg-[#0B1B3A]/80 backdrop-blur">
+        <div className="mx-auto flex h-24 max-w-6xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div
-              aria-hidden="true"
-              className="h-8 w-24 rounded-full border border-white/15 bg-white/5"
-              title="Logo placeholder"
-            />
+            <Image src="/ankare.png" alt="Ankare" width={96} height={96} priority />
           </div>
 
           <nav aria-label="Primary" className="flex items-center gap-2">
-            <a
-              href="#info"
-              className="rounded-full px-3 py-1.5 text-sm font-medium text-[#F5F7FF]/90 hover:text-[#F5F7FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1B3A]"
-            >
-              Info
-            </a>
-            <a
-              href="#analysis-section"
-              className="rounded-full px-3 py-1.5 text-sm font-medium text-[#F5F7FF]/90 hover:text-[#F5F7FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1B3A]"
-            >
-              Analys
-            </a>
+            {/* om navigations länkar behövs lägg dem här */}
           </nav>
         </div>
       </header>
@@ -249,8 +235,7 @@ export default function Page() {
       <section id="analysis-section" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-[#F5F7FF]">ART-grupper</h2>
-            <p className="mt-1 text-sm text-[#F5F7FF]/70">Resultatet visas här efter att du tolkat en PDF.</p>
+            <p className="mt-1 text-sm text-[#F5F7FF]/70">Resultatet visas här efter att du klickat på Tolka lönespecifikation.</p>
           </div>
 
           {artGroupsData ? (

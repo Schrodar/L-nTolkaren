@@ -1,6 +1,9 @@
 import * as React from 'react';
+import Image from 'next/image';
 
 import { summarizePayslipArtGroups } from '@/lib/summarizePayslipArtGroups';
+
+const EMPTY_DATES: string[] = [];
 
 export type PayslipArtGroups = {
   fileName?: string;
@@ -20,11 +23,15 @@ function MonthCalendar({
   monthISO,
   overtimeBreakdownByDayISO,
   workDaysISO,
+  art302DatesISO,
+  semesterDaysISO,
   caption,
 }: {
   monthISO: string;
   overtimeBreakdownByDayISO?: Record<string, { minutes301?: number; minutes311?: number }>;
   workDaysISO?: string[];
+  art302DatesISO?: string[];
+  semesterDaysISO?: string[];
   caption?: string;
 }) {
   const [y, m] = monthISO.split('-').map(Number);
@@ -35,8 +42,10 @@ function MonthCalendar({
   const [hoveredISO, setHoveredISO] = React.useState<string | null>(null);
   const [selectedISO, setSelectedISO] = React.useState<string | null>(null);
 
-  const breakdown = overtimeBreakdownByDayISO ?? {};
+  const breakdown = React.useMemo(() => overtimeBreakdownByDayISO ?? {}, [overtimeBreakdownByDayISO]);
   const workSet = React.useMemo(() => new Set(workDaysISO ?? []), [workDaysISO]);
+  const art302Set = React.useMemo(() => new Set(art302DatesISO ?? []), [art302DatesISO]);
+  const semesterSet = React.useMemo(() => new Set(semesterDaysISO ?? []), [semesterDaysISO]);
 
   const minutesForISO = React.useCallback(
     (iso: string): { total: number; minutes301: number; minutes311: number } => {
@@ -90,6 +99,8 @@ function MonthCalendar({
   const markedCount = new Set([
     ...Object.keys(breakdown).filter((d) => minutesForISO(d).total > 0),
     ...(workDaysISO ?? []),
+    ...(art302DatesISO ?? []),
+    ...(semesterDaysISO ?? []),
   ]).size;
 
   return (
@@ -117,8 +128,15 @@ function MonthCalendar({
         {cells.map((c, idx) => {
           const minutesInfo = c.iso ? minutesForISO(c.iso) : { total: 0, minutes301: 0, minutes311: 0 };
           const hasMinutes = minutesInfo.total > 0;
-          const isMarked = hasMinutes;
           const isWorkDay = !!c.iso && workSet.has(c.iso);
+          const hasArt302 = !!c.iso && art302Set.has(c.iso);
+          const hasSemester = !!c.iso && semesterSet.has(c.iso);
+          // Spec: ändra inget annat i kalendern, förutom att om ART 302 hamnar under en grön dag (315)
+          // så ska den bli röd. Vi triggar alltså inte tooltip/popup för 302 här.
+          const forceRedBecause302OnWorkDay = isWorkDay && hasArt302;
+
+          const isRedDay = hasMinutes || forceRedBecause302OnWorkDay;
+          const showRedDot = hasMinutes || hasArt302;
           const hoverTitle = c.iso ? c.iso : '';
           const isHovered = !!c.iso && hoveredISO === c.iso;
           return (
@@ -127,8 +145,10 @@ function MonthCalendar({
               className={[
                 'relative h-9 rounded-lg border text-sm flex items-center justify-center',
                 c.day ? 'border-gray-200' : 'border-transparent',
-                isMarked
+                isRedDay
                   ? 'bg-red-50 border-red-200 text-gray-900 font-semibold'
+                  : hasSemester
+                    ? 'bg-amber-50 border-amber-200 text-amber-950 font-semibold'
                   : isWorkDay
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-950 font-semibold'
                     : 'bg-white text-gray-700',
@@ -150,10 +170,16 @@ function MonthCalendar({
                 if (e.key === 'Enter' || e.key === ' ') setSelectedISO(c.iso);
               }}
             >
-              {isMarked ? (
+              {hasSemester ? (
+                <span aria-hidden="true" className="absolute right-0.5 -top-1 h-4 w-4">
+                  <Image src="/semester.png" alt="" width={16} height={16} />
+                </span>
+              ) : null}
+
+              {showRedDot ? (
                 <span
                   aria-hidden="true"
-                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-600"
+                  className="absolute right-1 top-1 z-10 h-2 w-2 rounded-full bg-red-600"
                 />
               ) : null}
 
@@ -185,8 +211,9 @@ function MonthCalendar({
       </div>
 
       <div className="mt-3 text-[11px] text-gray-500">
-        Röd prick = övertid (ART 301 utbetald + ART 311 till komp). Hover visar timmar, klick öppnar popup.
+        Röd prick = övertid (ART 301 utbetald + ART 311 till komp) samt ART 302 (övertid, kvalificerad). Hover visar timmar, klick öppnar popup.
         <span className="ml-2">Grön dag = arbete (ART 315).</span>
+        <span className="ml-2">Gul markering + ikon = semester (ART 700).</span>
       </div>
 
       <div className="mt-1 text-[11px] text-gray-500">
@@ -278,6 +305,51 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const art301Hours = art301 ? Math.floor(art301.totalMinutes / 60) : 0;
   const art301Minutes = art301 ? Math.abs(art301.totalMinutes % 60) : 0;
 
+  const art700 = overview.art700;
+  const art700DatesISO = art700?.datesISO ?? EMPTY_DATES;
+  const art700DaysCount = art700DatesISO.length;
+  const art700GeneratedHours = art700DaysCount * 5;
+
+  const art700Periods = React.useMemo(() => {
+    const dates = art700DatesISO;
+    if (!dates.length) return [] as Array<{ fromISO: string; toISO: string }>;
+
+    const utcMs = (iso: string): number | null => {
+      const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const y = Number(m[1]);
+      const mo = Number(m[2]);
+      const d = Number(m[3]);
+      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+      return Date.UTC(y, mo - 1, d);
+    };
+
+    const oneDay = 24 * 60 * 60 * 1000;
+    const out: Array<{ fromISO: string; toISO: string }> = [];
+
+    let fromISO = dates[0];
+    let prevISO = dates[0];
+    let prevMs = utcMs(prevISO);
+
+    for (let i = 1; i < dates.length; i++) {
+      const curISO = dates[i];
+      const curMs = utcMs(curISO);
+      const isContiguous =
+        typeof prevMs === 'number' && typeof curMs === 'number' ? curMs - prevMs === oneDay : false;
+
+      if (!isContiguous) {
+        out.push({ fromISO, toISO: prevISO });
+        fromISO = curISO;
+      }
+
+      prevISO = curISO;
+      prevMs = curMs;
+    }
+
+    out.push({ fromISO, toISO: prevISO });
+    return out;
+  }, [art700DatesISO]);
+
   const art320 = overview.art320;
 
   const overtimeBreakdownByDayISO = React.useMemo(() => {
@@ -295,10 +367,12 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
       }
     }
     return out;
-  }, [art301?.minutesByDateISO, art311?.minutesByDateISO]);
+  }, [art301, art311]);
 
-  const calendarMonthISO = art301?.monthISO ?? art311?.monthISO ?? art315?.monthISO ?? null;
+  const calendarMonthISO = art301?.monthISO ?? art311?.monthISO ?? art315?.monthISO ?? overview.art700?.monthISO ?? null;
   const hasAnyOvertime = !!Object.keys(overtimeBreakdownByDayISO).length;
+  const art302DatesISO = overview.art302?.datesISO ?? [];
+  const semesterDaysISO = overview.art700?.datesISO ?? EMPTY_DATES;
 
   return (
     <section className="w-full rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -319,6 +393,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               monthISO={calendarMonthISO}
               overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
               workDaysISO={art315?.datesISO ?? []}
+              art302DatesISO={art302DatesISO}
+              semesterDaysISO={semesterDaysISO}
               caption={
                 hasAnyOvertime
                   ? 'Markerar övertid: ART 301 (utbetald) + ART 311 (till komp)'
@@ -355,6 +431,32 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               {art315?.datesISO.length ? (
                 <div className="mt-1 text-xs text-gray-500">Datum markerade: {art315.datesISO.length}</div>
               ) : null}
+            </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-3">
+              <div className="text-xs font-semibold text-gray-700">Semester (700)</div>
+              {art700 ? (
+                <>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Semesterdagar</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatInt(art700DaysCount)}</div>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between">
+                    <div className="text-gray-600">Semestertid</div>
+                    <div className="tabular-nums font-semibold text-gray-900">{formatInt(art700GeneratedHours)} h</div>
+                  </div>
+
+                  {art700Periods.length ? (
+                    <div className="mt-1 text-xs text-gray-500">
+                      {art700Periods.length === 1 ? 'Period:' : 'Perioder:'}{' '}
+                      {art700Periods.map((p) => `${p.fromISO} – ${p.toISO}`).join(', ')}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="mt-1 text-sm text-gray-600">Hittade inga 700-rader.</div>
+              )}
+              <div className="mt-1 text-xs text-gray-500">Varje semesterdag räknas som 5 timmars arbete.</div>
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
