@@ -197,6 +197,19 @@ export type ArtSummary81001 = {
   sekByDateISO: Record<string, number>;
 };
 
+export type ArtSummary80001 = {
+  art: '80001';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+  sekPerHour: number | null;
+  sekTotalComputed: number;
+  sekTotalFromRow: number | null;
+  hoursByDateISO: Record<string, number>;
+  sekByDateISO: Record<string, number>;
+};
+
 export type PayslipArtOverview = {
   art315?: ArtSummary315;
   art311?: ArtSummary311;
@@ -209,6 +222,7 @@ export type PayslipArtOverview = {
   art700?: ArtSummary700;
   art810?: ArtSummary810;
   art81001?: ArtSummary81001;
+  art80001?: ArtSummary80001;
   art2101?: ArtSummary2101;
   art9001?: ArtSummary9001;
   art9002?: ArtSummary9002;
@@ -514,6 +528,35 @@ function parse81001FromRawRow(raw: string): { dateFrom: string; dateTo: string; 
   return { dateFrom, dateTo, hours, sekPerHour, sekTotalFromRow };
 }
 
+function parse80001FromRawRow(
+  raw: string
+): { dateFrom: string; dateTo: string; hours: number; sekPerHour: number; sekTotalFromRow?: number } | null {
+  const s = normalizeSpaces(raw);
+  const dateRe = /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/;
+  const dm = s.match(dateRe);
+  if (!dm || dm.index == null) return null;
+
+  const dateFrom = dm[1];
+  const dateTo = dm[2];
+
+  const after = s.slice(dm.index + dm[0].length).trim();
+  if (!after) return null;
+
+  // 80001: efter datum brukar vi ha: <timmar> Tim <timbelopp> <utbetalt>
+  // Men PDF-text kan slå ihop ord (t.ex. "5,17Tim"), så vi tar siffror robust.
+  const nums = extractAllSwedishNumbers(after);
+  if (nums.length < 2) return null;
+
+  const hours = nums[0];
+  const sekPerHour = nums[1];
+  if (!Number.isFinite(hours) || !Number.isFinite(sekPerHour)) return null;
+  if (hours < 0 || hours > 500) return null;
+  if (sekPerHour < -100000 || sekPerHour > 100000) return null;
+
+  const sekTotalFromRow = nums.length >= 3 ? nums[nums.length - 1] : undefined;
+  return { dateFrom, dateTo, hours, sekPerHour, sekTotalFromRow };
+}
+
 function parse350FromRawRow(raw: string): { hours: number; sekPerHour: number } | null {
   const s = normalizeSpaces(raw);
   const dateRe = /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/;
@@ -724,6 +767,7 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
   const art700Group = artGroups.find((g) => g.art === '700');
   const art810Group = artGroups.find((g) => g.art === '810');
   const art81001Group = artGroups.find((g) => g.art === '81001');
+  const art80001Group = artGroups.find((g) => g.art === '80001');
   const art320Group = artGroups.find((g) => g.art === '320');
   const art2101Group = artGroups.find((g) => g.art === '2101');
   const art9001Group = artGroups.find((g) => g.art === '9001');
@@ -1184,6 +1228,71 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
       datesISO,
       monthISO,
       hoursTotal,
+      sekPerHour,
+      sekTotalComputed: Math.round(sekTotalComputed * 100) / 100,
+      sekTotalFromRow: fromRowCount ? Math.round(sekTotalFromRow * 100) / 100 : null,
+      hoursByDateISO,
+      sekByDateISO,
+    };
+  }
+
+  // 80001: Sjukdom karenstillfälle (tim) → datumintervall + timmar + timbelopp + total.
+  // Exempelrad: "80001 Sjukdom karenstillfälle 2025-12-07 - 2025-12-07 5,17 Tim -224,64 -1 161,41"
+  if (art80001Group?.rows?.length) {
+    let hoursTotal = 0;
+    let sekTotalComputed = 0;
+    let sekTotalFromRow = 0;
+    let fromRowCount = 0;
+
+    const dates = new Set<string>();
+    const hoursByDateISO: Record<string, number> = {};
+    const sekByDateISO: Record<string, number> = {};
+
+    let sekPerHour: number | null = null;
+    const sameRateEps = 0.005;
+
+    for (const row of art80001Group.rows) {
+      const parsed = parse80001FromRawRow(row);
+      if (!parsed) continue;
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      hoursTotal += parsed.hours;
+      const computed = Math.round(parsed.hours * parsed.sekPerHour * 100) / 100;
+      sekTotalComputed += computed;
+
+      if (typeof parsed.sekTotalFromRow === 'number') {
+        sekTotalFromRow += parsed.sekTotalFromRow;
+        fromRowCount++;
+      }
+
+      if (sekPerHour == null) {
+        sekPerHour = parsed.sekPerHour;
+      } else if (Math.abs(sekPerHour - parsed.sekPerHour) > sameRateEps) {
+        sekPerHour = null;
+      }
+
+      const perDayHours = parsed.hours / expanded.length;
+      const perDaySek = computed / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + perDayHours;
+        sekByDateISO[d] = (sekByDateISO[d] ?? 0) + perDaySek;
+      }
+    }
+
+    if (hoursTotal < 0) hoursTotal = 0;
+
+    const datesISO = Array.from(dates).sort();
+    const monthISO = pickBestMonthISO(datesISO);
+
+    overview.art80001 = {
+      art: '80001',
+      rowsCount: art80001Group.rows.length,
+      datesISO,
+      monthISO,
+      hoursTotal: Math.round(hoursTotal * 100) / 100,
       sekPerHour,
       sekTotalComputed: Math.round(sekTotalComputed * 100) / 100,
       sekTotalFromRow: fromRowCount ? Math.round(sekTotalFromRow * 100) / 100 : null,

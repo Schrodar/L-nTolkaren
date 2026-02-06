@@ -1,5 +1,6 @@
 import * as React from 'react';
 import Image from 'next/image';
+import { motion, useTime, useTransform } from 'framer-motion';
 
 import { summarizePayslipArtGroups } from '@/lib/summarizePayslipArtGroups';
 
@@ -25,6 +26,7 @@ function MonthCalendar({
   workDaysISO,
   art302DatesISO,
   art302BreakdownByDayISO,
+  sicknessDaysISO,
   semesterDaysISO,
   vabDaysISO,
   vabBreakdownByDayISO,
@@ -38,6 +40,7 @@ function MonthCalendar({
   workDaysISO?: string[];
   art302DatesISO?: string[];
   art302BreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
+  sicknessDaysISO?: string[];
   semesterDaysISO?: string[];
   vabDaysISO?: string[];
   vabBreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
@@ -55,6 +58,7 @@ function MonthCalendar({
   const workSet = React.useMemo(() => new Set(workDaysISO ?? []), [workDaysISO]);
   const art302Set = React.useMemo(() => new Set(art302DatesISO ?? []), [art302DatesISO]);
   const art302Breakdown = React.useMemo(() => art302BreakdownByDayISO ?? {}, [art302BreakdownByDayISO]);
+  const sicknessSet = React.useMemo(() => new Set(sicknessDaysISO ?? []), [sicknessDaysISO]);
   const semesterSet = React.useMemo(() => new Set(semesterDaysISO ?? []), [semesterDaysISO]);
   const vabSet = React.useMemo(() => new Set(vabDaysISO ?? []), [vabDaysISO]);
   const vabBreakdown = React.useMemo(() => vabBreakdownByDayISO ?? {}, [vabBreakdownByDayISO]);
@@ -85,6 +89,18 @@ function MonthCalendar({
     () => new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK' }),
     []
   );
+
+  // Express (ART 315) modal animation: continuous horizontal figure-eight (∞) + roll.
+  // Use time-based motion values to avoid any perceived “stops” at keyframes.
+  const expressTime = useTime();
+  const expressPhase = useTransform(expressTime, (ms) => {
+    const loopSeconds = 5.2;
+    const t = (ms / 1000) % loopSeconds;
+    return (t / loopSeconds) * (2 * Math.PI);
+  });
+  const expressX = useTransform(expressPhase, (p) => 12 * Math.sin(p));
+  const expressY = useTransform(expressPhase, (p) => 5 * Math.sin(2 * p));
+  const expressRotate = useTransform(expressPhase, (p) => -8 * Math.sin(p));
 
   function minutesToLabel(minutes: number) {
     const hoursDec = minutes / 60;
@@ -139,7 +155,21 @@ function MonthCalendar({
     return !!selectedISO && semesterSet.has(selectedISO);
   }, [selectedISO, semesterSet]);
 
-  const isModalOpen = !!selectedISO && (selectedInfo.total > 0 || !!selectedArt302 || !!selectedVab || selectedHasSemester);
+  const selectedHasWorkDay = React.useMemo(() => {
+    return !!selectedISO && workSet.has(selectedISO);
+  }, [selectedISO, workSet]);
+
+  const selectedHasSickness = React.useMemo(() => {
+    return !!selectedISO && sicknessSet.has(selectedISO);
+  }, [selectedISO, sicknessSet]);
+
+  const selectedShowExpress = React.useMemo(() => {
+    return !!selectedISO && selectedHasWorkDay && !selectedHasSemester && !selectedHasSickness && !selectedVab;
+  }, [selectedISO, selectedHasWorkDay, selectedHasSemester, selectedHasSickness, selectedVab]);
+
+  const isModalOpen =
+    !!selectedISO &&
+    (selectedInfo.total > 0 || !!selectedArt302 || !!selectedVab || selectedHasSemester || selectedHasSickness || selectedHasWorkDay);
 
   React.useEffect(() => {
     if (!isModalOpen) return;
@@ -169,6 +199,7 @@ function MonthCalendar({
     ...Object.keys(breakdown).filter((d) => minutesForISO(d).total > 0),
     ...(workDaysISO ?? []),
     ...(art302DatesISO ?? []),
+    ...(sicknessDaysISO ?? []),
     ...(semesterDaysISO ?? []),
     ...(vabDaysISO ?? []),
   ]).size;
@@ -202,11 +233,15 @@ function MonthCalendar({
           const hasMinutes = minutesInfo.total > 0;
           const isWorkDay = !!c.iso && workSet.has(c.iso);
           const hasArt302 = !!c.iso && (art302Set.has(c.iso) || !!art302Breakdown[c.iso]);
+          const hasSickness = !!c.iso && sicknessSet.has(c.iso);
           const hasSemester = !!c.iso && semesterSet.has(c.iso);
           const hasVab = !!c.iso && (vabSet.has(c.iso) || !!vabBreakdown[c.iso]);
 
+          const isClickable = !!c.iso && (hasMinutes || hasArt302 || hasSickness || hasVab || hasSemester || isWorkDay);
+
           const isRedDay = hasMinutes || hasArt302;
           const showTicktack = hasMinutes || hasArt302;
+          const showExpress = isWorkDay && !hasSemester && !hasVab && !hasSickness;
           const hoverTitle = c.iso ? c.iso : '';
           const isHovered = !!c.iso && hoveredISO === c.iso;
           return (
@@ -215,13 +250,16 @@ function MonthCalendar({
               className={[
                 'relative h-9 rounded-lg border text-sm flex items-center justify-center',
                 c.day ? 'border-gray-200' : 'border-transparent',
-                isRedDay
-                  ? 'bg-red-50 border-red-200 text-gray-900 font-semibold'
-                  : hasSemester
-                    ? 'bg-amber-50 border-amber-200 text-amber-950 font-semibold'
-                  : isWorkDay
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-950 font-semibold'
-                    : 'bg-white text-gray-700',
+                isClickable ? 'cursor-pointer' : 'cursor-default',
+                hasSickness
+                  ? 'bg-emerald-900 border-emerald-950 text-white font-semibold'
+                  : isRedDay
+                    ? 'bg-red-50 border-red-200 text-gray-900 font-semibold'
+                    : hasSemester
+                      ? 'bg-amber-50 border-amber-200 text-amber-950 font-semibold'
+                      : isWorkDay
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-950 font-semibold'
+                        : 'bg-white text-gray-700',
               ].join(' ')}
               title={hoverTitle}
               onMouseEnter={() => {
@@ -231,16 +269,16 @@ function MonthCalendar({
                 if (c.iso && hoveredISO === c.iso) setHoveredISO(null);
               }}
               onClick={() => {
-                if (c.iso && (hasMinutes || hasArt302 || hasVab || hasSemester)) setSelectedISO(c.iso);
+                if (c.iso && isClickable) setSelectedISO(c.iso);
               }}
-              role={c.iso && (hasMinutes || hasArt302 || hasVab || hasSemester) ? 'button' : undefined}
-              tabIndex={c.iso && (hasMinutes || hasArt302 || hasVab || hasSemester) ? 0 : undefined}
+              role={isClickable ? 'button' : undefined}
+              tabIndex={isClickable ? 0 : undefined}
               onKeyDown={(e) => {
-                if (!c.iso || (!hasMinutes && !hasArt302 && !hasVab && !hasSemester)) return;
+                if (!c.iso || !isClickable) return;
                 if (e.key === 'Enter' || e.key === ' ') setSelectedISO(c.iso);
               }}
             >
-              {hasSemester || hasVab || showTicktack ? (
+              {hasSemester || hasVab || showTicktack || hasSickness || showExpress ? (
                 <span
                   aria-hidden="true"
                   className="absolute right-0.5 -top-2 flex items-center gap-0.5"
@@ -254,6 +292,18 @@ function MonthCalendar({
                   {hasVab ? (
                     <span className="h-5 w-5 shrink-0">
                       <Image src="/vab.png" alt="" width={20} height={20} />
+                    </span>
+                  ) : null}
+
+                  {hasSickness ? (
+                    <span className="h-5 w-5 shrink-0">
+                      <Image src="/temp.png" alt="" width={20} height={20} />
+                    </span>
+                  ) : null}
+
+                  {showExpress ? (
+                    <span className="h-5 w-5 shrink-0">
+                      <Image src="/express.png" alt="" width={20} height={20} />
                     </span>
                   ) : null}
 
@@ -328,9 +378,10 @@ function MonthCalendar({
 
       <div className="mt-3 text-[11px] text-gray-500">
         Ticktack-ikon = övertid (ART 301/302/311/31101/312/31201). Hover visar info, klick öppnar popup.
-        <span className="ml-2">Grön dag = arbete (ART 315).</span>
+        <span className="ml-2">Express-ikon = arbete (ART 315) när inga andra ikoner syns (förutom ticktack).</span>
         <span className="ml-2">Gul markering + ikon = semester (ART 700).</span>
         <span className="ml-2">Ikon = VAB (ART 810/81001).</span>
+        <span className="ml-2">Temp-ikon = sjukdom (ART 80001).</span>
       </div>
 
       <div className="mt-1 text-[11px] text-gray-500">
@@ -357,13 +408,37 @@ function MonthCalendar({
                 <div className="text-xs uppercase tracking-wide text-gray-500">
                   {selectedInfo.total > 0 || selectedArt302
                     ? 'Övertid'
-                    : selectedVab && selectedHasSemester
-                      ? 'VAB + semester'
-                      : selectedVab
-                        ? 'VAB'
-                        : selectedHasSemester
-                          ? 'Semester'
-                          : 'Dag'}
+                    : selectedHasWorkDay && selectedVab && selectedHasSemester && selectedHasSickness
+                      ? 'Arbete + VAB + semester + sjukdom'
+                      : selectedHasWorkDay && selectedVab && selectedHasSemester
+                        ? 'Arbete + VAB + semester'
+                        : selectedHasWorkDay && selectedVab && selectedHasSickness
+                          ? 'Arbete + VAB + sjukdom'
+                          : selectedHasWorkDay && selectedHasSemester && selectedHasSickness
+                            ? 'Arbete + semester + sjukdom'
+                            : selectedHasWorkDay && selectedVab
+                              ? 'Arbete + VAB'
+                              : selectedHasWorkDay && selectedHasSemester
+                                ? 'Arbete + semester'
+                                : selectedHasWorkDay && selectedHasSickness
+                                  ? 'Arbete + sjukdom'
+                                  : selectedHasWorkDay
+                                    ? 'Arbete'
+                    : selectedVab && selectedHasSemester && selectedHasSickness
+                      ? 'VAB + semester + sjukdom'
+                      : selectedVab && selectedHasSemester
+                        ? 'VAB + semester'
+                        : selectedVab && selectedHasSickness
+                          ? 'VAB + sjukdom'
+                          : selectedHasSemester && selectedHasSickness
+                            ? 'Semester + sjukdom'
+                            : selectedVab
+                              ? 'VAB'
+                              : selectedHasSemester
+                                ? 'Semester'
+                                : selectedHasSickness
+                                  ? 'Sjukdom'
+                                  : 'Dag'}
                 </div>
                 <div className="mt-1 text-sm font-semibold text-gray-900">{selectedISO}</div>
               </div>
@@ -376,11 +451,23 @@ function MonthCalendar({
               </button>
             </div>
 
-            {selectedInfo.total <= 0 && (selectedVab || selectedHasSemester) ? (
+            {selectedInfo.total <= 0 && (selectedHasWorkDay || selectedVab || selectedHasSemester || selectedHasSickness) ? (
               <div className="mt-4 flex items-center justify-center gap-6">
+                {selectedShowExpress ? (
+                  <motion.div
+                    style={{ x: expressX, y: expressY, rotate: expressRotate, willChange: 'transform' }}
+                  >
+                    <Image src="/express.png" alt="Arbete" width={120} height={120} />
+                  </motion.div>
+                ) : null}
                 {selectedHasSemester ? (
                   <div className="animate-gentle-bounce">
                     <Image src="/semester.png" alt="Semester" width={120} height={120} />
+                  </div>
+                ) : null}
+                {selectedHasSickness ? (
+                  <div className="animate-gentle-bounce">
+                    <Image src="/temp.png" alt="Sjukdom" width={120} height={120} />
                   </div>
                 ) : null}
                 {selectedVab ? (
@@ -435,6 +522,20 @@ function MonthCalendar({
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <div className="text-xs font-semibold text-gray-700">Semester (700)</div>
                 <div className="mt-1 text-sm text-gray-700">Denna dag är markerad som semester.</div>
+              </div>
+            ) : null}
+
+            {selectedHasWorkDay ? (
+              <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="text-xs font-semibold text-gray-700">Arbete (315)</div>
+                <div className="mt-1 text-sm text-gray-700">Denna dag är markerad som arbetstid (ART 315).</div>
+              </div>
+            ) : null}
+
+            {selectedHasSickness ? (
+              <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <div className="text-xs font-semibold text-gray-700">Sjukdom (80001)</div>
+                <div className="mt-1 text-sm text-gray-700">Denna dag är markerad som sjukdom/karenstillfälle.</div>
               </div>
             ) : null}
 
@@ -503,6 +604,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     if (overview.art070) set.add('070');
     if (overview.art4851) set.add('4851');
     if (overview.art350) set.add('350');
+    if (overview.art80001) set.add('80001');
     if (overview.art70001) set.add('70001');
     if (overview.artK7022) set.add('K7022');
     if (overview.artK315) set.add('K315');
@@ -628,6 +730,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const art070 = overview.art070;
   const art4851 = overview.art4851;
   const art350 = overview.art350;
+  const art80001 = overview.art80001;
   const art70001 = overview.art70001;
   const artK7022 = overview.artK7022;
   const fackforeningsavgift = overview.fackforeningsavgift;
@@ -658,6 +761,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     // Money conversions / deductions
     pushIfNumber('Komp → pengar (320)', (art320?.sekTotalFromRow ?? art320?.sekTotalComputed) ?? null);
     pushIfNumber('VAB (81001)', (art81001?.sekTotalFromRow ?? art81001?.sekTotalComputed) ?? null);
+    pushIfNumber('Sjukdom karens (80001)', (art80001?.sekTotalFromRow ?? art80001?.sekTotalComputed) ?? null);
 
     // Aggregates
     pushIfNumber('Friskvård (9190 + K5441)', friskvard?.sekTotal);
@@ -686,6 +790,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     artK7022?.sekTotal,
     art81001?.sekTotalComputed,
     art81001?.sekTotalFromRow,
+    art80001?.sekTotalComputed,
+    art80001?.sekTotalFromRow,
     art9001?.sekTotal,
     art9002?.sekTotal,
     art320?.sekTotalComputed,
@@ -804,6 +910,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     null;
   const hasAnyOvertime = !!Object.keys(overtimeBreakdownByDayISO).length;
   const art302DatesISO = overview.art302?.datesISO ?? [];
+  const sicknessDaysISO = overview.art80001?.datesISO ?? [];
   const semesterDaysISO = overview.art700?.datesISO ?? EMPTY_DATES;
 
   return (
@@ -827,6 +934,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               workDaysISO={art315?.datesISO ?? []}
               art302DatesISO={art302DatesISO}
               art302BreakdownByDayISO={art302BreakdownByDayISO}
+              sicknessDaysISO={sicknessDaysISO}
               semesterDaysISO={semesterDaysISO}
               vabDaysISO={vabDaysISO}
               vabBreakdownByDayISO={vabBreakdownByDayISO}
