@@ -94,7 +94,7 @@ export function itemsToLines(items: TextItem[], yTolerance: number = 2): Line[] 
 
 export function extractArtLines(lines: Line[]) {
   const out: Array<{ raw: string }> = [];
-  const artLineRe = /^(\d{2,5}|K\d{4})\s/;
+  const artLineRe = /^(\d{2,5}|K\d{3,5})\s/;
   const dateRangeLineRe = /^\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}\b/;
 
   let currentArt: string | null = null;

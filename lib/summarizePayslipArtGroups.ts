@@ -26,10 +26,17 @@ export type ArtSummary311 = {
 
 export type ArtSummary301 = {
   art: '301';
+  rowsCount: number;
   totalMinutes: number;
   datesISO: string[];
   monthISO: string | null;
   minutesByDateISO: Record<string, number>;
+  hoursTotal: number;
+  sekPerHour: number | null;
+  sekTotalComputed: number;
+  sekTotalFromRow: number | null;
+  hoursByDateISO: Record<string, number>;
+  sekByDateISO: Record<string, number>;
 };
 
 export type ArtSummary31101 = {
@@ -92,6 +99,20 @@ export type ArtSummary070 = {
   sekTotal: number;
 };
 
+export type ArtSummary4851 = {
+  art: '4851';
+  rowsCount: number;
+  sekTotal: number;
+};
+
+export type ArtSummary350 = {
+  art: '350';
+  rowsCount: number;
+  hoursTotal: number;
+  sekPerHour: number | null;
+  sekTotalComputed: number;
+};
+
 export type ArtSummary70001 = {
   art: '70001';
   rowsCount: number;
@@ -104,6 +125,15 @@ export type ArtSummaryK7022 = {
   art: 'K7022';
   rowsCount: number;
   sekTotal: number;
+};
+
+export type ArtSummaryK315 = {
+  art: 'K315';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+  hoursByDateISO: Record<string, number>;
 };
 
 export type FackforeningsavgiftSummary = {
@@ -185,8 +215,11 @@ export type PayslipArtOverview = {
   art0641?: ArtSummary0641;
   art0644?: ArtSummary0644;
   art070?: ArtSummary070;
+  art4851?: ArtSummary4851;
+  art350?: ArtSummary350;
   art70001?: ArtSummary70001;
   artK7022?: ArtSummaryK7022;
+  artK315?: ArtSummaryK315;
   fackforeningsavgift?: FackforeningsavgiftSummary;
   friskvard?: FriskvardSummary;
   byArt: Array<{
@@ -481,6 +514,32 @@ function parse81001FromRawRow(raw: string): { dateFrom: string; dateTo: string; 
   return { dateFrom, dateTo, hours, sekPerHour, sekTotalFromRow };
 }
 
+function parse350FromRawRow(raw: string): { hours: number; sekPerHour: number } | null {
+  const s = normalizeSpaces(raw);
+  const dateRe = /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/;
+  const dm = s.match(dateRe);
+  if (!dm || dm.index == null) return null;
+
+  const after = s.slice(dm.index + dm[0].length).trim();
+  if (!after) return null;
+
+  const tokens = after.match(/[-+]?\d+(?:\s\d{3})*(?:,\d{1,2})?/g) || [];
+  if (tokens.length < 2) return null;
+
+  const t0 = tokens[0];
+  const t1 = tokens[1];
+  if (!t0 || !t1) return null;
+
+  const hours = parseSwedishNumber(t0.trim());
+  const sekPerHour = parseSwedishNumber(t1.trim());
+  if (typeof hours !== 'number' || typeof sekPerHour !== 'number') return null;
+  if (!Number.isFinite(hours) || !Number.isFinite(sekPerHour)) return null;
+
+  if (hours < 0 || hours > 24) return null;
+  if (sekPerHour < 0 || sekPerHour > 100000) return null;
+  return { hours, sekPerHour };
+}
+
 function parse320FromRawRow(raw: string): { hours: number; sekPerHour: number; sekTotalFromRow?: number } | null {
   const s = normalizeSpaces(raw);
   const m = s.match(/\bpengar\b/i);
@@ -511,6 +570,44 @@ function parse320FromRawRow(raw: string): { hours: number; sekPerHour: number; s
   }
 
   return { hours, sekPerHour, sekTotalFromRow };
+}
+
+function parse301FromRawRow(
+  raw: string
+): { dateFrom: string; dateTo: string; hours: number; sekPerHour: number; sekTotalFromRow?: number } | null {
+  const s = normalizeSpaces(raw);
+  const dateRe = /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/;
+  const dm = s.match(dateRe);
+  if (!dm || dm.index == null) return null;
+
+  const dateFrom = dm[1];
+  const dateTo = dm[2];
+
+  const after = s.slice(dm.index + dm[0].length).trim();
+  if (!after) return null;
+
+  // För ART 301 förväntar vi oss: <timmar> <timbelopp> <utbetalt>
+  const tokens = after.match(/[-+]?\d+(?:\s\d{3})*(?:,\d{1,2})?/g) || [];
+  if (!tokens[0] || !tokens[1]) return null;
+
+  const hours = parseSwedishNumber(tokens[0].trim());
+  const sekPerHour = parseSwedishNumber(tokens[1].trim());
+  if (typeof hours !== 'number' || typeof sekPerHour !== 'number') return null;
+  if (!Number.isFinite(hours) || !Number.isFinite(sekPerHour)) return null;
+
+  if (hours < 0 || hours > 500) return null;
+  if (sekPerHour < 0 || sekPerHour > 100000) return null;
+
+  let sekTotalFromRow: number | undefined;
+  for (let i = tokens.length - 1; i >= 2; i--) {
+    const n = parseSwedishNumber(tokens[i].trim());
+    if (typeof n !== 'number') continue;
+    if (!Number.isFinite(n)) continue;
+    sekTotalFromRow = n;
+    break;
+  }
+
+  return { dateFrom, dateTo, hours, sekPerHour, sekTotalFromRow };
 }
 
 function parse302FromRawRow(
@@ -554,7 +651,7 @@ function parse302FromRawRow(
 
 export function parseArtRow(raw: string): ParsedArtRow | null {
   const s = normalizeSpaces(raw);
-  const artMatch = s.match(/^(\d{2,5}|K\d{4})\s+/);
+  const artMatch = s.match(/^(\d{2,5}|K\d{3,5})\s+/);
   if (!artMatch) return null;
 
   const art = artMatch[1];
@@ -634,8 +731,11 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
   const art0641Group = artGroups.find((g) => g.art === '0641');
   const art0644Group = artGroups.find((g) => g.art === '0644');
   const art070Group = artGroups.find((g) => g.art === '070');
+  const art4851Group = artGroups.find((g) => g.art === '4851');
+  const art350Group = artGroups.find((g) => g.art === '350');
   const art70001Group = artGroups.find((g) => g.art === '70001');
   const artK7022Group = artGroups.find((g) => g.art === 'K7022');
+  const artK315Group = artGroups.find((g) => g.art === 'K315');
   const art9190Group = artGroups.find((g) => g.art === '9190');
   const artK5441Group = artGroups.find((g) => g.art === 'K5441');
 
@@ -705,34 +805,74 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
   // 301: Övertid (utbetald) – timmar = första siffran efter datumintervallet.
   if (art301Group?.rows?.length) {
     let totalMinutes = 0;
+    let hoursTotal = 0;
+    let sekTotalComputed = 0;
+    let sekTotalFromRow = 0;
+    let fromRowCount = 0;
+
     const dates = new Set<string>();
     const minutesByDateISO: Record<string, number> = {};
+    const hoursByDateISO: Record<string, number> = {};
+    const sekByDateISO: Record<string, number> = {};
+
+    let sekPerHour: number | null = null;
+    const sameRateEps = 0.005;
 
     for (const row of art301Group.rows) {
-      const parsed = parseArtRow(row);
-      if (!parsed?.dateFrom || !parsed.dateTo) continue;
-
-      const hours = parse301HoursFromRawRow(row);
-      if (typeof hours !== 'number') continue;
+      const parsed = parse301FromRawRow(row);
+      if (!parsed) continue;
 
       const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
       if (!expanded.length) continue;
 
-      const minutesTotal = Math.round(hours * 60);
+      hoursTotal += parsed.hours;
+      const computed = Math.round(parsed.hours * parsed.sekPerHour * 100) / 100;
+      sekTotalComputed += computed;
+
+      if (typeof parsed.sekTotalFromRow === 'number') {
+        sekTotalFromRow += parsed.sekTotalFromRow;
+        fromRowCount++;
+      }
+
+      if (sekPerHour == null) {
+        sekPerHour = parsed.sekPerHour;
+      } else if (Math.abs(sekPerHour - parsed.sekPerHour) > sameRateEps) {
+        sekPerHour = null;
+      }
+
+      const minutesTotal = Math.round(parsed.hours * 60);
       totalMinutes += minutesTotal;
 
       const perDay = Math.round(minutesTotal / expanded.length);
+      const perDayHours = parsed.hours / expanded.length;
+      const perDaySek = computed / expanded.length;
       for (const d of expanded) {
         dates.add(d);
         minutesByDateISO[d] = (minutesByDateISO[d] ?? 0) + perDay;
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + perDayHours;
+        sekByDateISO[d] = (sekByDateISO[d] ?? 0) + perDaySek;
       }
     }
 
     if (totalMinutes < 0) totalMinutes = 0;
+    if (hoursTotal < 0) hoursTotal = 0;
 
     const datesISO = Array.from(dates).sort();
     const monthISO = pickBestMonthISO(datesISO);
-    overview.art301 = { art: '301', totalMinutes, datesISO, monthISO, minutesByDateISO };
+    overview.art301 = {
+      art: '301',
+      rowsCount: art301Group.rows.length,
+      totalMinutes,
+      datesISO,
+      monthISO,
+      minutesByDateISO,
+      hoursTotal: Math.round(hoursTotal * 100) / 100,
+      sekPerHour,
+      sekTotalComputed: Math.round(sekTotalComputed * 100) / 100,
+      sekTotalFromRow: fromRowCount ? Math.round(sekTotalFromRow * 100) / 100 : null,
+      hoursByDateISO,
+      sekByDateISO,
+    };
   }
 
   // 31101: Övertid, omräkning okvalificerad (komptid) – timmar = första siffran efter datumintervallet.
@@ -1052,6 +1192,46 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
     };
   }
 
+  // K315: Långdagstillägg → första siffran efter datumintervallet är timmar (t.ex. 0,10).
+  // Exempel: "K315 Långdagstillägg 2025-12-16 - 2025-12-16 0,10 0,00"
+  if (artK315Group?.rows?.length) {
+    let hoursTotal = 0;
+    const dates = new Set<string>();
+    const hoursByDateISO: Record<string, number> = {};
+
+    for (const row of artK315Group.rows) {
+      const parsed = parseArtRow(row);
+      if (!parsed?.dateFrom || !parsed.dateTo) continue;
+
+      const hours = parse301HoursFromRawRow(row);
+      if (typeof hours !== 'number' || !Number.isFinite(hours)) continue;
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      hoursTotal += hours;
+      const perDay = hours / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + perDay;
+      }
+    }
+
+    if (hoursTotal < 0) hoursTotal = 0;
+
+    const datesISO = Array.from(dates).sort();
+    const monthISO = pickBestMonthISO(datesISO);
+
+    overview.artK315 = {
+      art: 'K315',
+      rowsCount: artK315Group.rows.length,
+      datesISO,
+      monthISO,
+      hoursTotal: Math.round(hoursTotal * 100) / 100,
+      hoursByDateISO,
+    };
+  }
+
   // 320: Omvandling av innestående komp till pengar.
   // Format: "... till pengar <timmar> <timbelopp> ... <utbetalt>". Vi tar timmar+timbelopp direkt efter ordet "pengar".
   if (art320Group?.rows?.length) {
@@ -1201,6 +1381,63 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
         art: '070',
         rowsCount: art070Group.rows.length,
         sekTotal: Math.round(sekTotal * 100) / 100,
+      };
+    }
+  }
+
+  // 4851: Ersättn sjukvård skattepl → endast beloppet efter datumintervallet.
+  // Exempel: "4851 Ersättn sjukvård skattepl 2025-10-20 - 2025-10-20 275,00"
+  if (art4851Group?.rows?.length) {
+    let sekTotal = 0;
+    let matched = 0;
+
+    for (const row of art4851Group.rows) {
+      const n = parseSekAfterDateRangeFromRawRow(row);
+      if (typeof n !== 'number' || !Number.isFinite(n)) continue;
+      sekTotal += n;
+      matched++;
+    }
+
+    if (matched > 0) {
+      overview.art4851 = {
+        art: '4851',
+        rowsCount: art4851Group.rows.length,
+        sekTotal: Math.round(sekTotal * 100) / 100,
+      };
+    }
+  }
+
+  // 350: OB-tillägg kontant → timmar efter datumintervallet × timbelopp (SEK) efter timmar.
+  // Exempel:
+  // "350 OB-tillägg kontant 2025-12-25 - 2025-12-25 5,25 123,67 649,25"
+  if (art350Group?.rows?.length) {
+    let hoursTotal = 0;
+    let sekTotalComputed = 0;
+    let matched = 0;
+    let sekPerHour: number | null = null;
+    const sameRateEps = 0.005;
+
+    for (const row of art350Group.rows) {
+      const parsed = parse350FromRawRow(row);
+      if (!parsed) continue;
+      matched++;
+      hoursTotal += parsed.hours;
+      sekTotalComputed += parsed.hours * parsed.sekPerHour;
+
+      if (sekPerHour == null) {
+        sekPerHour = parsed.sekPerHour;
+      } else if (Math.abs(sekPerHour - parsed.sekPerHour) > sameRateEps) {
+        sekPerHour = null;
+      }
+    }
+
+    if (matched > 0) {
+      overview.art350 = {
+        art: '350',
+        rowsCount: art350Group.rows.length,
+        hoursTotal: Math.round(hoursTotal * 100) / 100,
+        sekPerHour,
+        sekTotalComputed: Math.round(sekTotalComputed * 100) / 100,
       };
     }
   }
