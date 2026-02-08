@@ -740,11 +740,11 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const artK315 = overview.artK315;
 
   const moneyOverview = React.useMemo(() => {
-    const items: Array<{ label: string; amount: number }> = [];
+    const items: Array<{ label: string; amount: number; count?: number }> = [];
 
-    const pushIfNumber = (label: string, amount: number | null | undefined) => {
+    const pushIfNumber = (label: string, amount: number | null | undefined, opts?: { count?: number }) => {
       if (typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) return;
-      items.push({ label, amount });
+      items.push({ label, amount, count: opts?.count });
     };
 
     pushIfNumber('Månadslön (070)', art070?.sekTotal);
@@ -754,7 +754,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     pushIfNumber('OB-tillägg kontant (350)', art350?.sekTotalComputed);
     pushIfNumber('Däckmanstillägg (0641)', art0641?.sekTotal);
     pushIfNumber('Rederitillägg (0644)', art0644?.sekTotal);
-    pushIfNumber('Maskinskötseltillägg (2101)', overview.art2101?.sekTotal);
+    pushIfNumber('Maskinskötseltillägg (2101)', overview.art2101?.sekTotal, { count: overview.art2101?.rowsCount });
     pushIfNumber('Semestertillägg (70001)', art70001?.sekTotalComputed);
     pushIfNumber('Semesterersättning direkt rörliga (K7022)', artK7022?.sekTotal);
 
@@ -799,6 +799,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     fackforeningsavgift?.sekTotal,
     friskvard?.sekTotal,
     overview.art2101?.sekTotal,
+    overview.art2101?.rowsCount,
   ]);
 
   const vabBreakdownByDayISO = React.useMemo(() => {
@@ -1065,7 +1066,10 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                   {moneyOverview.plus.length ? (
                     moneyOverview.plus.map((it) => (
                       <div key={it.label} className="flex items-center justify-between gap-3">
-                        <div className="text-gray-600">{it.label}</div>
+                        <div className="text-gray-600">
+                          {it.label}
+                          {typeof it.count === 'number' && Number.isFinite(it.count) ? ` (${it.count} st)` : ''}
+                        </div>
                         <div className="tabular-nums font-semibold text-gray-900">{formatSek(it.amount)}</div>
                       </div>
                     ))
@@ -1090,7 +1094,10 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                   {moneyOverview.minus.length ? (
                     moneyOverview.minus.map((it) => (
                       <div key={it.label} className="flex items-center justify-between gap-3">
-                        <div className="text-gray-600">{it.label}</div>
+                        <div className="text-gray-600">
+                          {it.label}
+                          {typeof it.count === 'number' && Number.isFinite(it.count) ? ` (${it.count} st)` : ''}
+                        </div>
                         <div className="tabular-nums font-semibold text-gray-900">{formatSek(it.amount)}</div>
                       </div>
                     ))
