@@ -1,0 +1,26 @@
+{
+  "boat": "Waxholm II",
+  "season": "ao_vinter_2025_26",
+  "period": { "from": "2025-12-13", "to": "2026-03-31" },
+
+  "standard": {
+    "mon": [{ "start": "06:10", "end": "15:50", "breaks": [{ "start": "12:30", "end": "14:00", "label": "Annan rast" }] },
+            { "start": "15:25", "end": "19:50" }],
+    "tue": [{ "start": "06:10", "end": "21:50", "breaks": [{ "start": "14:50", "end": "16:30", "label": "Ao-rast" }] }],
+    "wed": [{ "start": "06:10", "end": "19:50" }],
+    "thu": [{ "start": "06:10", "end": "19:50", "breaks": [{ "start": "12:30", "end": "14:00", "label": "Annan rast" }] }],
+    "fri": [{ "start": "06:10", "end": "20:40", "breaks": [{ "start": "12:30", "end": "14:00", "label": "Ao-rast" }] }],
+    "sat": [{ "start": "07:45", "end": "20:45", "breaks": [{ "start": "11:50", "end": "13:00", "label": "Ao-rast" }, { "start": "13:00", "end": "14:00", "label": "Annan rast" }] }],
+    "sun": [{ "start": "07:45", "end": "20:45", "breaks": [{ "start": "11:50", "end": "13:00", "label": "Ao-rast" }, { "start": "13:00", "end": "14:00", "label": "Annan rast" }] }]
+  },
+
+  "overrides": {
+    "2025-12-14": {
+      "shifts": [{ "start": "10:20", "end": "20:45", "breaks": [{ "start": "11:35", "end": "13:45", "label": "Annan rast" }] }],
+      "notes": ["Restid Årsta 10:20 - Spränga 11:35"]
+    },
+    "2025-12-24": {
+      "shifts": [{ "start": "07:45", "end": "13:30" }]
+    }
+  }
+}

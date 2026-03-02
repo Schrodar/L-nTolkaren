@@ -1,0 +1,62 @@
+import type { TariffCatalog } from '@/lib/tariffs/types';
+
+const shared2026Values = {
+  monthly: {
+    beg: 25051,
+    y1: 25810,
+    y2: 27396,
+    y4: 30704,
+    y5: 31026,
+    y6: 31359,
+    y7: 32450,
+    y8: 33597,
+    y9: 34739,
+  },
+  hourlySeasonal: {
+    beg: 164.81,
+    y1: 169.8,
+    y2: 180.24,
+    y4: 202,
+    y5: 204.12,
+    y6: 206.31,
+    y7: 213.49,
+    y8: 221.03,
+    y9: 228.55,
+  },
+  hourlyShortTerm: {
+    beg: 172.77,
+    y1: 178,
+    y2: 188.94,
+    y4: 211.75,
+    y5: 213.97,
+    y6: 216.27,
+    y7: 223.79,
+    y8: 231.7,
+    y9: 239.58,
+  },
+  supplements: {
+    firstDeckhandMonthly: 2802,
+    seniorRolesMonthly: 1648,
+    rederiMonthly: {
+      y3: 434,
+      y6: 546,
+      y9: 674,
+    },
+    engineAttendantDaily: 170,
+  },
+  hourDivisors: {
+    seasonal: 152,
+    shortTerm: 145,
+  },
+};
+
+export const DEFAULT_TARIFFS: TariffCatalog = {
+  '2025-10-01': {
+    effectiveFrom: '2025-10-01',
+    ...shared2026Values,
+  },
+  '2026-10-01': {
+    effectiveFrom: '2026-10-01',
+    ...shared2026Values,
+  },
+};

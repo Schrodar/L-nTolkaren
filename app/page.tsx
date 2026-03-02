@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 
 import { parsePayslipArtGroups } from '@/lib/parsePayslipArtGroups';
 import { PayslipArtGroupsPanel } from '@/components/PayslipArtGroupsPanel';
@@ -16,7 +17,8 @@ export default function Page() {
   const [error, setError] = React.useState<string | null>(null);
 
   const [isParsing, setIsParsing] = React.useState(false);
-  const [artGroupsData, setArtGroupsData] = React.useState<PayslipArtGroups | null>(null);
+  const [artGroupsData, setArtGroupsData] =
+    React.useState<PayslipArtGroups | null>(null);
 
   function pickFile() {
     setError(null);
@@ -27,7 +29,8 @@ export default function Page() {
     if (!next) return;
 
     const isPdf =
-      next.type === 'application/pdf' || next.name.toLowerCase().endsWith('.pdf');
+      next.type === 'application/pdf' ||
+      next.name.toLowerCase().endsWith('.pdf');
 
     if (!isPdf) {
       setFileName(null);
@@ -76,16 +79,20 @@ export default function Page() {
     try {
       const arrayBuffer = await file.arrayBuffer();
 
-      const parsedArt = await parsePayslipArtGroups(arrayBuffer, { includePages: false });
+      const parsedArt = await parsePayslipArtGroups(arrayBuffer, {
+        includePages: false,
+      });
       setArtGroupsData({ fileName: file.name, artGroups: parsedArt.artGroups });
 
       requestAnimationFrame(() => {
-        document.getElementById('analysis-section')?.scrollIntoView({ behavior: 'smooth' });
+        document
+          .getElementById('analysis-section')
+          ?.scrollIntoView({ behavior: 'smooth' });
       });
     } catch (e: unknown) {
       console.error(e);
       setError(
-        'Kunde inte tolka PDF:en. Om den är scannad (bild) krävs OCR. Kontrollera också att pdf.js worker kan laddas (ingen “fake worker”).'
+        'Kunde inte tolka PDF:en. Om den är scannad (bild) krävs OCR. Kontrollera också att pdf.js worker kan laddas (ingen “fake worker”).',
       );
     } finally {
       setIsParsing(false);
@@ -98,11 +105,28 @@ export default function Page() {
       <header className="border-b border-white/10 bg-[#0B1B3A]/80 backdrop-blur">
         <div className="mx-auto flex h-24 max-w-6xl items-center justify-between px-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <Image src="/ankare.png" alt="Ankare" width={96} height={96} priority />
+            <Image
+              src="/ankare.png"
+              alt="Ankare"
+              width={96}
+              height={96}
+              priority
+            />
           </div>
 
           <nav aria-label="Primary" className="flex items-center gap-2">
-            {/* om navigations länkar behövs lägg dem här */}
+            <Link
+              href="/"
+              className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
+            >
+              Analysera lönespec
+            </Link>
+            <Link
+              href="/loneberakning"
+              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+            >
+              Löneberäkning
+            </Link>
           </nav>
         </div>
       </header>
@@ -116,13 +140,15 @@ export default function Page() {
           </h1>
 
           <p className="max-w-xl text-pretty text-base leading-relaxed text-[#F5F7FF]/80 sm:text-lg">
-            Dra och släpp din lönespecifikation i rutan, eller välj en PDF från din dator. Text
-            extraheras lokalt i webbläsaren, och “arter” grupperas lokalt via pdf.js.
+            Dra och släpp din lönespecifikation i rutan, eller välj en PDF från
+            din dator. Text extraheras lokalt i webbläsaren, och “arter”
+            grupperas lokalt via pdf.js.
           </p>
 
           <div id="info" className="pt-2">
             <p className="text-sm leading-relaxed text-[#F5F7FF]/65">
-              Få en sammanfattning av din lön och upptäck eventuella avvikelser eller felaktigheter.
+              Få en sammanfattning av din lön och upptäck eventuella avvikelser
+              eller felaktigheter.
             </p>
           </div>
         </section>
@@ -145,7 +171,9 @@ export default function Page() {
                 'group relative rounded-2xl border border-white/15 bg-white/5 p-6 sm:p-8',
                 'shadow-[0_10px_30px_rgba(0,0,0,0.25)]',
                 'transition-colors',
-                isDragOver ? 'border-white/35 bg-white/8' : 'hover:border-white/25',
+                isDragOver
+                  ? 'border-white/35 bg-white/8'
+                  : 'hover:border-white/25',
                 'focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1B3A]',
               ].join(' ')}
             >
@@ -153,7 +181,9 @@ export default function Page() {
 
               <div className="flex items-start justify-between gap-6">
                 <div className="space-y-2">
-                  <p className="text-sm font-semibold tracking-wide text-[#F5F7FF]">PDF-uppladdning</p>
+                  <p className="text-sm font-semibold tracking-wide text-[#F5F7FF]">
+                    PDF-uppladdning
+                  </p>
                   <p id="upload-help" className="text-sm text-[#F5F7FF]/75">
                     Dra &amp; släpp en PDF här, eller klicka för att välja.
                   </p>
@@ -171,14 +201,21 @@ export default function Page() {
                   <p className="text-sm text-[#F5F7FF]/85">
                     {fileName ? (
                       <>
-                        Vald fil: <span className="font-semibold text-[#F5F7FF]">{fileName}</span>
+                        Vald fil:{' '}
+                        <span className="font-semibold text-[#F5F7FF]">
+                          {fileName}
+                        </span>
                       </>
                     ) : (
                       'Ingen fil vald ännu.'
                     )}
                   </p>
 
-                  {error ? <p className="mt-1 text-sm font-medium text-red-200">{error}</p> : null}
+                  {error ? (
+                    <p className="mt-1 text-sm font-medium text-red-200">
+                      {error}
+                    </p>
+                  ) : null}
 
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     <button
@@ -208,13 +245,19 @@ export default function Page() {
                           : 'cursor-not-allowed bg-white/20 text-[#F5F7FF]/60',
                       ].join(' ')}
                       aria-disabled={!file || isParsing}
-                      title={!file ? 'Välj en PDF för att fortsätta' : 'Tolka lönespecifikation'}
+                      title={
+                        !file
+                          ? 'Välj en PDF för att fortsätta'
+                          : 'Tolka lönespecifikation'
+                      }
                     >
                       {isParsing ? 'Tolkar…' : 'Tolka lönespecifikation'}
                     </button>
                   </div>
 
-                  <p className="text-xs text-[#F5F7FF]/60">Tolkningen startar först när du klickar på knappen.</p>
+                  <p className="text-xs text-[#F5F7FF]/60">
+                    Tolkningen startar först när du klickar på knappen.
+                  </p>
                 </div>
               </div>
 
@@ -232,10 +275,16 @@ export default function Page() {
       </main>
 
       {/* Analysis section */}
-      <section id="analysis-section" className="mx-auto max-w-6xl px-4 pb-20 sm:px-6">
+      <section
+        id="analysis-section"
+        className="mx-auto max-w-6xl px-4 pb-20 sm:px-6"
+      >
         <div className="mb-4 flex items-end justify-between">
           <div>
-            <p className="mt-1 text-sm text-[#F5F7FF]/70">Resultatet visas här efter att du klickat på Tolka lönespecifikation.</p>
+            <p className="mt-1 text-sm text-[#F5F7FF]/70">
+              Resultatet visas här efter att du klickat på Tolka
+              lönespecifikation.
+            </p>
           </div>
 
           {artGroupsData ? (
@@ -253,7 +302,8 @@ export default function Page() {
 
         {!artGroupsData ? (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-[#F5F7FF]/75">
-            Ingen analys ännu. Välj en PDF och klicka på <span className="font-semibold">Tolka</span>.
+            Ingen analys ännu. Välj en PDF och klicka på{' '}
+            <span className="font-semibold">Tolka</span>.
           </div>
         ) : (
           <div className="rounded-2xl bg-transparent">
