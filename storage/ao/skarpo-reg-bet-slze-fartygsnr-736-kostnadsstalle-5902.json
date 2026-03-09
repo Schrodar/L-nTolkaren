@@ -1,0 +1,33 @@
+{
+  "_savedAt": "2026-03-08T19:56:15.951Z",
+  "_slug": "skarpo-reg-bet-slze-fartygsnr-736-kostnadsstalle-5902",
+  "sheetName": "Skarpö",
+  "vesselName": "Skarpö      Reg.bet:   SLZE   Fartygsnr:  736  Kostnadsställe:    5902",
+  "vesselPrefix": "M/S",
+  "registration": null,
+  "validFrom": "2025-12-13",
+  "validTo": "2026-03-31",
+  "roles": "Matros, lättmatros, jungman          Per.3 = Omfattar tiden från föregående dags arbetsslut till dagens arbetsstart.             A=1/1 dag",
+  "costCenter": "5902",
+  "blocks": [
+    {
+      "heading": "Gäller :   2025-12-13 t.o.m. 2026-03-31          Per.1 = Omfattar tiden från 00.00 till arbetsstart samt från arbetsslut till 24.00.",
+      "periodStart": "2025-12-13",
+      "periodEnd": "2026-03-31",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2025-12-14 t.o.m. 2026-04-01 (Isperiod tabell 20 Ornö / tabell 21 Årsta / tabell 22 Ålö)",
+      "periodStart": "2025-12-14",
+      "periodEnd": "2026-04-01",
+      "mode": "is",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    }
+  ],
+  "parseErrors": []
+}

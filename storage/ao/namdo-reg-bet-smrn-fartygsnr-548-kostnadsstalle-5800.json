@@ -1,0 +1,78 @@
+{
+  "_savedAt": "2026-03-08T19:56:15.703Z",
+  "_slug": "namdo-reg-bet-smrn-fartygsnr-548-kostnadsstalle-5800",
+  "sheetName": "Nämdö",
+  "vesselName": "Nämdö      Reg.bet:   SMRN   Fartygsnr:  548  Kostnadsställe:    5800",
+  "vesselPrefix": "M/S",
+  "registration": null,
+  "validFrom": "2025-12-13",
+  "validTo": "2026-03-31",
+  "roles": "Matros, lättmatros, jungman          Per.3 = Omfattar tiden från föregående dags arbetsslut till dagens arbetsstart.             A=1/1 dag",
+  "costCenter": "5800",
+  "blocks": [
+    {
+      "heading": "Gäller :   2025-12-13 t.o.m. 2026-03-31          Per.1 = Omfattar tiden från 00.00 till arbetsstart samt från arbetsslut till 24.00.",
+      "periodStart": "2025-12-13",
+      "periodEnd": "2026-03-31",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2025-12-16 t.o.m. 2026-01-06 (Isfri period tabell 2 Stockholm / tabell 3 Norra Lagnö / tabell 4 Ramsö, samt tabell 13 Ingmarsö)",
+      "periodStart": "2025-12-16",
+      "periodEnd": "2026-01-06",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2025-12-16 t.o.m. 2026-01-06 (Isperiod tabell 2 Stockholm / tabell 3 Norra Lagnö / tabell 4 Ramsö, samt isfri period tabell 13 Ingmarsö)",
+      "periodStart": "2025-12-16",
+      "periodEnd": "2026-01-06",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2025-12-16 t.o.m. 2026-01-06 (Isperiod tabell 2 Stockholm / tabell 3 Norra Lagnö / tabell 4 Ramsö, samt tabell 13 Ingmarsö)",
+      "periodStart": "2025-12-16",
+      "periodEnd": "2026-01-06",
+      "mode": "is",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2026-01-07 t.o.m. 2026-04-01 (Isfri period tabell 2 Stockholm / tabell 3 Norra Lagnö / tabell 4 Ramsö, samt tabell 13 Ingmarsö)",
+      "periodStart": "2026-01-07",
+      "periodEnd": "2026-04-01",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2026-01-07 t.o.m. 2026-04-01 (Isperiod tabell 2 Stockholm / tabell 3 Norra Lagnö / tabell 4 Ramsö, samt isfri period tabell 13 Ingmarsö)",
+      "periodStart": "2026-01-07",
+      "periodEnd": "2026-04-01",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2026-01-07 t.o.m. 2026-04-01 (Isperiod tabell 2 Stockholm / tabell 3 Norra Lagnö / tabell 4 Ramsö, samt tabell 13 Ingmarsö)",
+      "periodStart": "2026-01-07",
+      "periodEnd": "2026-04-01",
+      "mode": "is",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    }
+  ],
+  "parseErrors": []
+}

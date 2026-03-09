@@ -1,0 +1,24 @@
+{
+  "_savedAt": "2026-03-08T19:56:15.846Z",
+  "_slug": "sunnan-reg-bet-siag-fartygsnr-676-kostnadsstalle-5500",
+  "sheetName": "Sunnan",
+  "vesselName": "Sunnan      Reg.bet:   SIAG   Fartygsnr:  676  Kostnadsställe:    5500",
+  "vesselPrefix": "M/S",
+  "registration": null,
+  "validFrom": "2025-12-13",
+  "validTo": "2026-03-31",
+  "roles": "Matros, lättmatros och jungman          Per.3 = Omfattar tiden från föregående dags arbetsslut till dagens arbetsstart.             A=1/1 dag",
+  "costCenter": "5500",
+  "blocks": [
+    {
+      "heading": "Gäller :   2025-12-13 t.o.m. 2026-03-31          Per.1 = Omfattar tiden från 00.00 till arbetsstart samt från arbetsslut till 24.00.",
+      "periodStart": "2025-12-13",
+      "periodEnd": "2026-03-31",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    }
+  ],
+  "parseErrors": []
+}

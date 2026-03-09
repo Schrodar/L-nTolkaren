@@ -1,0 +1,17 @@
+{
+  "_savedAt": "2026-03-09T09:48:12.563Z",
+  "_slug": "andringslogg",
+  "sheetName": "Ändringslogg",
+  "vesselName": null,
+  "vesselPrefix": null,
+  "registration": null,
+  "validFrom": null,
+  "validTo": null,
+  "roles": null,
+  "costCenter": null,
+  "blocks": [],
+  "parseErrors": [
+    "Bladet \"Ändringslogg\": Inga AO-perioder hittades. Kontrollera att filen innehåller datumintervall på formatet \"ÅÅÅÅ-MM-DD t.o.m. ÅÅÅÅ-MM-DD\".",
+    "Bladet \"Ändringslogg\" innehåller ingen tolkbar AO-data och hoppades över."
+  ]
+}

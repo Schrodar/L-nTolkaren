@@ -4,51 +4,26 @@ import * as React from 'react';
 import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
 
-import {
-  applyWorkedDefaults,
-  createDefaultDayEntry,
-} from '@/lib/calendar/helpers';
-import type {
-  AbsenceType,
-  DayEntry,
-  OvertimeCompensationType,
-} from '@/lib/calendar/types';
 import type { ResolvedDaySchedule } from '@/lib/schedule/types';
+import { getHolidayInfo, getEffectiveAoDayType } from '@/lib/ao/holidayRules';
 
 type DayModalProps = {
   isOpen: boolean;
   dateISO: string | null;
-  initialEntry?: DayEntry;
   resolvedDay: ResolvedDaySchedule | null;
-  defaultWorkedHoursFromSchedule: number | null;
-  onSave: (entry: DayEntry) => void;
-  onDelete: () => void;
+  tidEnlKollAvt: number | null;
+  overtime: number;
+  onOvertimeChange: (hours: number) => void;
   onClose: () => void;
 };
 
-function parseNumberInput(value: string): number {
-  if (!value.trim()) return 0;
-  const parsed = Number(value.replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : 0;
+function formatHHMM(hours: number): string {
+  const h = Math.floor(hours);
+  const m = Math.round((hours % 1) * 60);
+  return `${h}:${m.toString().padStart(2, '0')}`;
 }
 
-export function DayModal({
-  isOpen,
-  dateISO,
-  initialEntry,
-  resolvedDay,
-  defaultWorkedHoursFromSchedule,
-  onSave,
-  onDelete,
-  onClose,
-}: DayModalProps) {
-  const [entry, setEntry] = React.useState<DayEntry | null>(null);
-
-  React.useEffect(() => {
-    if (!isOpen || !dateISO) return;
-    setEntry(initialEntry ?? createDefaultDayEntry(dateISO));
-  }, [isOpen, dateISO, initialEntry]);
-
+export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, overtime, onOvertimeChange, onClose }: DayModalProps) {
   React.useEffect(() => {
     if (!isOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -65,43 +40,33 @@ export function DayModal({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen || !dateISO || !entry) return null;
+  if (!isOpen || !dateISO) return null;
 
-  const displayDate = format(new Date(`${dateISO}T00:00:00`), 'd MMMM yyyy', {
-    locale: sv,
-  });
-
-  const dayWorkSpans =
-    resolvedDay?.shifts
-      .map((shift) => shift.work)
-      .filter((work): work is NonNullable<typeof work> => Boolean(work)) ?? [];
-  const dayBreakSpans =
-    resolvedDay?.shifts.flatMap((shift) => shift.breaks ?? []) ?? [];
-  const dayDeviations = resolvedDay?.flags ?? [];
-  const hasSchemaForDay = dayWorkSpans.length > 0;
-
-  function updateEntry(next: Partial<DayEntry>) {
-    setEntry((prev) => (prev ? { ...prev, ...next } : prev));
+  const displayDate = format(new Date(`${dateISO}T00:00:00`), 'd MMMM yyyy', { locale: sv });
+  const holidayInfo = getHolidayInfo(dateISO);
+  const eff = getEffectiveAoDayType(dateISO);
+  let otLabel: string;
+  let otColor: string;
+  let otBorder: string;
+  let otInputColor: string;
+  if (eff === 'söndag' || eff === 'lördag') {
+    otLabel = 'Kvalificerad övertid';
+    otColor = 'text-rose-300';
+    otBorder = 'border-rose-500/30 bg-rose-500/10';
+    otInputColor = 'text-rose-200';
+  } else if (eff === 'fredag') {
+    otLabel = 'Fredag-OB';
+    otColor = 'text-violet-300';
+    otBorder = 'border-violet-500/30 bg-violet-500/10';
+    otInputColor = 'text-violet-200';
+  } else {
+    otLabel = 'Vanlig övertid';
+    otColor = 'text-orange-300';
+    otBorder = 'border-orange-500/30 bg-orange-500/10';
+    otInputColor = 'text-orange-200';
   }
-
-  function handleWorkedChange(worked: boolean) {
-    if (!entry) return;
-    if (worked) {
-      const fallback =
-        entry.workedHours > 0
-          ? entry.workedHours
-          : (defaultWorkedHoursFromSchedule ?? 0);
-      updateEntry({ worked: true, workedHours: fallback });
-      return;
-    }
-
-    updateEntry({ worked: false, workedHours: 0 });
-  }
-
-  function handleSave() {
-    if (!entry) return;
-    onSave(applyWorkedDefaults(entry));
-  }
+  const shifts = resolvedDay?.shifts ?? [];
+  const isException = resolvedDay?.flags?.includes('undantag');
 
   return (
     <div
@@ -110,262 +75,107 @@ export function DayModal({
       role="presentation"
     >
       <div
-        className="w-full max-w-2xl rounded-2xl border border-white/15 bg-[#0B1B3A] p-6 text-[#F5F7FF] shadow-[0_20px_45px_rgba(0,0,0,0.45)]"
-        onClick={(event) => event.stopPropagation()}
+        className="w-full max-w-md rounded-2xl border border-white/15 bg-[#0B1B3A] p-6 text-[#F5F7FF] shadow-[0_20px_45px_rgba(0,0,0,0.45)]"
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Daginmatning"
       >
-        <h2 className="text-2xl font-semibold tracking-[-0.02em]">
-          {displayDate}
-        </h2>
-
-        <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-[#F5F7FF]/80">
-          <div className="font-semibold text-[#F5F7FF]/95">Schema (JSON)</div>
-          {!hasSchemaForDay ? (
-            <div className="mt-1 text-[#F5F7FF]/75">Saknas i schema</div>
-          ) : null}
-          <div className="mt-1">
-            Arbetstid:{' '}
-            {dayWorkSpans.length
-              ? dayWorkSpans
-                  .map(
-                    (span) =>
-                      `${span.start}-${span.end}${span.duration ? ` (${span.duration})` : ''}`,
-                  )
-                  .join(', ')
-              : 'Ingen'}
+        <div className="flex items-start justify-between">
+          <h2 className="text-2xl font-semibold tracking-[-0.02em]">{displayDate}</h2>
+          <div className="flex flex-wrap gap-1 justify-end">
+            {isException && (
+              <span className="rounded bg-amber-200/30 px-2 py-1 text-xs text-amber-100">Undantag</span>
+            )}
+            {holidayInfo?.holidayType === 'storhelg' && (
+              <span className="rounded bg-red-500/25 px-2 py-1 text-xs text-red-200">{holidayInfo.label}</span>
+            )}
+            {holidayInfo?.holidayType === 'småhelg' && (
+              <span className="rounded bg-amber-500/20 px-2 py-1 text-xs text-amber-100">{holidayInfo.label}</span>
+            )}
+            {holidayInfo !== null && holidayInfo.holidayType === null && (
+              <span className="rounded bg-violet-500/20 px-2 py-1 text-xs text-violet-200">{holidayInfo.label}</span>
+            )}
           </div>
-          <div className="mt-1">
-            Raster:{' '}
-            {dayBreakSpans.length
-              ? dayBreakSpans
-                  .map(
-                    (span) =>
-                      `${span.label ? `${span.label}: ` : ''}${span.start}-${span.end}`,
-                  )
-                  .join(', ')
-              : 'Inga'}
-          </div>
-          <div className="mt-1">
-            Avvikelser:{' '}
-            {dayDeviations.length ? dayDeviations.join(', ') : 'Inga'}
-          </div>
-          {resolvedDay?.notes?.length ? (
-            <div className="mt-1">
-              Noteringar: {resolvedDay.notes.join(', ')}
-            </div>
-          ) : null}
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-3 rounded-xl border border-white/10 p-3">
-            <h3 className="text-sm font-semibold text-[#F5F7FF]/95">Grund</h3>
+        {shifts.length === 0 ? (
+          <p className="mt-4 text-sm text-[#F5F7FF]/60">
+            Ingen arbetstid i schemat för denna dag.
+          </p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {shifts.map((shift, i) => {
+              const work = shift.work;
+              if (!work || !work.start || !work.end) return null;
+              const breaks = shift.breaks ?? [];
+              const [sh, sm] = work.start.split(':').map(Number);
+              const [eh, em] = work.end.split(':').map(Number);
+              let bruttoMin = (eh * 60 + em) - (sh * 60 + sm);
+              if (bruttoMin < 0) bruttoMin += 24 * 60;
 
-            <label className="inline-flex items-center gap-2 text-sm text-[#F5F7FF]/90">
-              <input
-                type="checkbox"
-                checked={entry.worked}
-                onChange={(event) => handleWorkedChange(event.target.checked)}
-                className="accent-white"
-              />
-              Jobbat?
-            </label>
+              return (
+                <div key={i} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  {shifts.length > 1 && (
+                    <div className="mb-2 text-xs font-semibold text-[#F5F7FF]/50">
+                      Pass {i + 1}
+                    </div>
+                  )}
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-lg font-semibold">
+                      {work.start} – {work.end}
+                    </span>
+                    <span className="text-sm text-green-400">
+                      Brutto {formatHHMM(bruttoMin / 60)}
+                    </span>
+                  </div>
+                  {breaks.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {breaks.map((br, j) => (
+                        <div key={j} className="text-xs text-[#F5F7FF]/60">
+                          {br.label ?? 'Rast'}: {br.start} – {br.end}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
 
-            <label className="block text-sm text-[#F5F7FF]/90">
-              Arbetade timmar
-              <input
-                type="text"
-                inputMode="decimal"
-                value={entry.workedHours || ''}
-                onChange={(event) =>
-                  updateEntry({
-                    workedHours: parseNumberInput(event.target.value),
-                  })
-                }
-                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-                placeholder={
-                  defaultWorkedHoursFromSchedule !== null
-                    ? String(defaultWorkedHoursFromSchedule)
-                    : '0'
-                }
-              />
-            </label>
-          </div>
-
-          <div className="space-y-3 rounded-xl border border-white/10 p-3">
-            <h3 className="text-sm font-semibold text-[#F5F7FF]/95">Övertid</h3>
-
-            <label className="block text-sm text-[#F5F7FF]/90">
-              Enkel (timmar)
-              <input
-                type="text"
-                inputMode="decimal"
-                value={entry.overtimeSimpleHours || ''}
-                onChange={(event) =>
-                  updateEntry({
-                    overtimeSimpleHours: parseNumberInput(event.target.value),
-                  })
-                }
-                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-              />
-            </label>
-
-            <label className="block text-sm text-[#F5F7FF]/90">
-              Kvalificerad (timmar)
-              <input
-                type="text"
-                inputMode="decimal"
-                value={entry.overtimeQualifiedHours || ''}
-                onChange={(event) =>
-                  updateEntry({
-                    overtimeQualifiedHours: parseNumberInput(
-                      event.target.value,
-                    ),
-                  })
-                }
-                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-              />
-            </label>
-
-            <fieldset className="space-y-2">
-              <legend className="text-sm text-[#F5F7FF]/90">
-                Övertid till
-              </legend>
-              <div className="flex flex-wrap gap-3">
-                {[
-                  { value: 'cash', label: 'Kontant' },
-                  { value: 'comp', label: 'Komp' },
-                ].map((option) => (
-                  <label
-                    key={option.value}
-                    className="inline-flex items-center gap-2 text-sm"
-                  >
-                    <input
-                      type="radio"
-                      name="overtime-compensation"
-                      checked={entry.overtimeCompensation === option.value}
-                      onChange={() =>
-                        updateEntry({
-                          overtimeCompensation:
-                            option.value as OvertimeCompensationType,
-                        })
-                      }
-                      className="accent-white"
-                    />
-                    {option.label}
-                  </label>
-                ))}
+            {tidEnlKollAvt !== null && (
+              <div className="flex items-center justify-between rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3">
+                <span className="text-sm font-semibold text-sky-300">Tid enl. avtal</span>
+                <span className="text-xl font-bold text-sky-300">
+                  {formatHHMM(tidEnlKollAvt)}
+                </span>
               </div>
-            </fieldset>
-          </div>
+            )}
 
-          <div className="space-y-3 rounded-xl border border-white/10 p-3">
-            <h3 className="text-sm font-semibold text-[#F5F7FF]/95">
-              OB & Komp
-            </h3>
-
-            <label className="block text-sm text-[#F5F7FF]/90">
-              OB-timmar
-              <input
-                type="text"
-                inputMode="decimal"
-                value={entry.obHours || ''}
-                onChange={(event) =>
-                  updateEntry({ obHours: parseNumberInput(event.target.value) })
-                }
-                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-              />
-            </label>
-
-            <label className="block text-sm text-[#F5F7FF]/90">
-              Omvandla komp till pengar (timmar)
-              <input
-                type="text"
-                inputMode="decimal"
-                value={entry.compToCashHours || ''}
-                onChange={(event) =>
-                  updateEntry({
-                    compToCashHours: parseNumberInput(event.target.value),
-                  })
-                }
-                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-              />
-            </label>
-          </div>
-
-          <div className="space-y-3 rounded-xl border border-white/10 p-3">
-            <h3 className="text-sm font-semibold text-[#F5F7FF]/95">
-              Frånvaro
-            </h3>
-
-            <label className="block text-sm text-[#F5F7FF]/90">
-              Typ
-              <select
-                value={entry.absenceType}
-                onChange={(event) =>
-                  updateEntry({
-                    absenceType: event.target.value as AbsenceType,
-                  })
-                }
-                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-              >
-                <option value="">Ingen</option>
-                <option value="semester">Semester</option>
-                <option value="sjuk">Sjuk</option>
-                <option value="vab">VAB</option>
-              </select>
-            </label>
-
-            {entry.absenceType ? (
-              <label className="block text-sm text-[#F5F7FF]/90">
-                Frånvaro timmar
+            <div className={`flex items-center justify-between rounded-xl border px-4 py-3 ${otBorder}`}>
+              <div>
+                <div className={`text-sm font-semibold ${otColor}`}>{otLabel}</div>
+                <div className="mt-0.5 text-xs text-white/40">timmar idag</div>
+              </div>
+              <div className="flex items-center gap-2">
                 <input
-                  type="text"
-                  inputMode="decimal"
-                  value={entry.absenceHours || ''}
-                  onChange={(event) =>
-                    updateEntry({
-                      absenceHours: parseNumberInput(event.target.value),
-                    })
-                  }
-                  className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
+                  type="number"
+                  value={overtime || ''}
+                  min={0}
+                  step={0.5}
+                  placeholder="0"
+                  onChange={(e) => onOvertimeChange(e.target.value === '' ? 0 : Number(e.target.value))}
+                  className={`w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-lg font-bold [appearance:textfield] ${otInputColor}`}
                 />
-              </label>
-            ) : null}
+                <span className={`text-sm ${otColor}`}>h</span>
+              </div>
+            </div>
           </div>
+        )}
 
-          <label className="block text-sm text-[#F5F7FF]/90 sm:col-span-2">
-            Anteckning
-            <textarea
-              value={entry.note}
-              onChange={(event) => updateEntry({ note: event.target.value })}
-              rows={3}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF]"
-              placeholder="Valfri anteckning för dagen"
-            />
-          </label>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-          >
-            Rensa dag
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="rounded-xl border border-white/15 bg-white px-4 py-2 text-sm font-medium text-[#0B1B3A] hover:bg-[#F5F7FF]"
-          >
-            Spara
-          </button>
+        <div className="mt-6 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
+            className="rounded-xl border border-white/15 bg-white/10 px-5 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
           >
             Stäng
           </button>

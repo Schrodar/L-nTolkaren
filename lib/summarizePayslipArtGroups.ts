@@ -22,6 +22,7 @@ export type ArtSummary311 = {
   datesISO: string[];
   monthISO: string | null;
   minutesByDateISO: Record<string, number>;
+  hoursByDateISO: Record<string, number>;
 };
 
 export type ArtSummary301 = {
@@ -53,6 +54,7 @@ export type ArtSummary312 = {
   datesISO: string[];
   monthISO: string | null;
   minutesByDateISO: Record<string, number>;
+  hoursByDateISO: Record<string, number>;
 };
 
 export type ArtSummary31201 = {
@@ -843,7 +845,8 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
 
     const datesISO = Array.from(dates).sort();
     const monthISO = pickBestMonthISO(datesISO);
-    overview.art311 = { art: '311', totalMinutes, datesISO, monthISO, minutesByDateISO };
+    const hoursByDateISO311 = Object.fromEntries(Object.entries(minutesByDateISO).map(([k, v]) => [k, v / 60]));
+    overview.art311 = { art: '311', totalMinutes, datesISO, monthISO, minutesByDateISO, hoursByDateISO: hoursByDateISO311 };
   }
 
   // 301: Övertid (utbetald) – timmar = första siffran efter datumintervallet.
@@ -982,7 +985,8 @@ export function summarizePayslipArtGroups(artGroups: ArtGroup[]): PayslipArtOver
 
     const datesISO = Array.from(dates).sort();
     const monthISO = pickBestMonthISO(datesISO);
-    overview.art312 = { art: '312', totalMinutes, datesISO, monthISO, minutesByDateISO };
+    const hoursByDateISO312 = Object.fromEntries(Object.entries(minutesByDateISO).map(([k, v]) => [k, v / 60]));
+    overview.art312 = { art: '312', totalMinutes, datesISO, monthISO, minutesByDateISO, hoursByDateISO: hoursByDateISO312 };
   }
 
   // 31201: Övertid, omräkning helgdag (komptid) – timmar = första siffran efter datumintervallet.

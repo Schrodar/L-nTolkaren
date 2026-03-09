@@ -1,0 +1,24 @@
+{
+  "_savedAt": "2026-03-08T19:56:15.828Z",
+  "_slug": "riddarfjarden-reg-bet-slai-fartygsnr-673-kostnadsstalle-5700",
+  "sheetName": "Riddarfjärden",
+  "vesselName": "Riddarfjärden      Reg.bet:   SLAI   Fartygsnr:  673  Kostnadsställe:    5700",
+  "vesselPrefix": "M/S",
+  "registration": null,
+  "validFrom": "2025-12-13",
+  "validTo": "2026-03-31",
+  "roles": "Matros, lättmatros och jungman          Per.3 = Omfattar tiden från föregående dags arbetsslut till dagens arbetsstart.             A=1/1 dag",
+  "costCenter": "5700",
+  "blocks": [
+    {
+      "heading": "Gäller :   2025-12-13 t.o.m. 2026-03-31          Per.1 = Omfattar tiden från 00.00 till arbetsstart samt från arbetsslut till 24.00.",
+      "periodStart": "2025-12-13",
+      "periodEnd": "2026-03-31",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    }
+  ],
+  "parseErrors": []
+}

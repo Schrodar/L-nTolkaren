@@ -4,6 +4,7 @@ import * as React from 'react';
 
 import {
   useLoneberakningContext,
+  ALLOWANCES,
   type EmploymentType,
 } from '@/components/LoneberakningContext';
 import { TENURE_KEYS, type TenureKey } from '@/lib/tariffs/types';
@@ -50,6 +51,10 @@ export function TariffEditor() {
     setGroundSalarySelection,
     selectedTariffDate,
     selectedTariff,
+    activeAllowances,
+    toggleAllowance,
+    allowanceAmounts,
+    setAllowanceAmount,
   } = useLoneberakningContext();
 
   const selectedValue =
@@ -63,7 +68,7 @@ export function TariffEditor() {
     <section className="rounded-2xl border border-white/10 bg-white/5 p-4 text-[#F5F7FF] sm:p-6">
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-semibold tracking-[-0.02em]">Grundlön</h2>
+          <h2 className="text-xl font-semibold tracking-[-0.02em]">Löneinställningar</h2>
           <p className="mt-1 text-sm text-[#F5F7FF]/70">
             Tariff väljs automatiskt utifrån kalenderår {selectedCalendarYear}:{' '}
             {selectedTariffDate}.
@@ -122,11 +127,61 @@ export function TariffEditor() {
         </label>
 
         <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
-          Grundlön:{' '}
+          Löneinställning:{' '}
           <span className="font-semibold">
             {formatMoney(selectedValue)} {selectedUnit}
           </span>
         </div>
+
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium text-[#F5F7FF]/90">Tillägg</legend>
+          <div className="space-y-2">
+            {ALLOWANCES.map((allowance) => {
+              const active = activeAllowances.has(allowance.key);
+              return (
+                <label
+                  key={allowance.key}
+                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={() => toggleAllowance(allowance.key)}
+                    className="h-4 w-4 accent-white"
+                  />
+                  <span className="flex-1">{allowance.label}</span>
+                  {allowance.editable ? (
+                    <span className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        value={allowanceAmounts[allowance.key]}
+                        onChange={(e) => setAllowanceAmount(allowance.key, Number(e.target.value))}
+                        className="w-24 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-sm text-[#F5F7FF] [appearance:textfield]"
+                        min={0}
+                      />
+                      <span className="text-[#F5F7FF]/50">{allowance.unit}</span>
+                    </span>
+                  ) : (
+                    <span className="text-[#F5F7FF]/60">{formatMoney(allowance.defaultAmount)} {allowance.unit}</span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          {activeAllowances.size > 0 && (
+            <div className="rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm">
+              Totalt tillägg:{' '}
+              <span className="font-semibold text-sky-300">
+                {formatMoney(
+                  Array.from(activeAllowances).reduce(
+                    (sum, key) => sum + allowanceAmounts[key],
+                    0,
+                  ),
+                )}{' '}kr/mån
+              </span>
+            </div>
+          )}
+        </fieldset>
 
         <details className="rounded-xl border border-white/10 p-3">
           <summary className="cursor-pointer text-sm font-semibold text-[#F5F7FF]/95">

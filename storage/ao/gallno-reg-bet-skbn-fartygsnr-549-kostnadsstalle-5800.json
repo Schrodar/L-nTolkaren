@@ -1,0 +1,33 @@
+{
+  "_savedAt": "2026-03-08T19:56:15.732Z",
+  "_slug": "gallno-reg-bet-skbn-fartygsnr-549-kostnadsstalle-5800",
+  "sheetName": "Gällnö",
+  "vesselName": "Gällnö      Reg.bet:   SKBN   Fartygsnr:  549  Kostnadsställe:    5800",
+  "vesselPrefix": "M/S",
+  "registration": null,
+  "validFrom": "2025-12-13",
+  "validTo": "2026-03-31",
+  "roles": "Matros, lättmatros, jungman          Per.3 = Omfattar tiden från föregående dags arbetsslut till dagens arbetsstart.             A=1/1 dag",
+  "costCenter": "5800",
+  "blocks": [
+    {
+      "heading": "Gäller :   2025-12-13 t.o.m. 2026-03-31          Per.1 = Omfattar tiden från 00.00 till arbetsstart samt från arbetsslut till 24.00.",
+      "periodStart": "2025-12-13",
+      "periodEnd": "2026-03-31",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    },
+    {
+      "heading": "2025-12-15 t.o.m. 2026-04-01",
+      "periodStart": "2025-12-15",
+      "periodEnd": "2026-04-01",
+      "mode": "isfri",
+      "weeklySchedule": [],
+      "exceptions": [],
+      "notes": []
+    }
+  ],
+  "parseErrors": []
+}

@@ -10,14 +10,22 @@ import {
   type TenureKey,
 } from '@/lib/tariffs/types';
 
-const STORAGE_KEY = 'loneberakning-settings-v1';
-
 export type EmploymentType = 'monthly' | 'hourlySeasonal' | 'hourlyShortTerm';
+
+export type AllowanceKey = 'maskinskots' | 'rederi' | 'dackman';
+
+export const ALLOWANCES: Array<{ key: AllowanceKey; label: string; defaultAmount: number; editable: boolean; unit: string }> = [
+  { key: 'maskinskots', label: 'Maskinskötstillägg', defaultAmount: 165,  editable: true,  unit: 'kr/dag' },
+  { key: 'rederi',     label: 'Rederitillägg',       defaultAmount: 655,  editable: false, unit: 'kr/mån' },
+  { key: 'dackman',   label: 'Däckmanstillägg',      defaultAmount: 2721, editable: false, unit: 'kr/mån' },
+];
 
 export type GroundSalarySelection = {
   employmentType: EmploymentType;
   tenure: TenureKey;
 };
+
+export type AllowanceAmounts = Record<AllowanceKey, number>;
 
 type LoneberakningContextValue = {
   selectedCalendarYear: number;
@@ -26,6 +34,10 @@ type LoneberakningContextValue = {
   setGroundSalarySelection: (selection: GroundSalarySelection) => void;
   selectedTariffDate: TariffDate;
   selectedTariff: TariffTable;
+  activeAllowances: Set<AllowanceKey>;
+  toggleAllowance: (key: AllowanceKey) => void;
+  allowanceAmounts: AllowanceAmounts;
+  setAllowanceAmount: (key: AllowanceKey, amount: number) => void;
 };
 
 const LoneberakningContext =
@@ -49,42 +61,22 @@ export function LoneberakningProvider({
       tenure: 'beg',
     });
 
-  React.useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as {
-        selectedCalendarYear?: number;
-        groundSalarySelection?: GroundSalarySelection;
-      };
+  const [activeAllowances, setActiveAllowances] = React.useState<Set<AllowanceKey>>(new Set());
+  const [allowanceAmounts, setAllowanceAmounts] = React.useState<AllowanceAmounts>(
+    Object.fromEntries(ALLOWANCES.map((a) => [a.key, a.defaultAmount])) as AllowanceAmounts,
+  );
 
-      if (typeof parsed.selectedCalendarYear === 'number') {
-        setSelectedCalendarYear(parsed.selectedCalendarYear);
-      }
+  function toggleAllowance(key: AllowanceKey) {
+    setActiveAllowances((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
 
-      if (
-        parsed.groundSalarySelection &&
-        (parsed.groundSalarySelection.employmentType === 'monthly' ||
-          parsed.groundSalarySelection.employmentType === 'hourlySeasonal' ||
-          parsed.groundSalarySelection.employmentType === 'hourlyShortTerm') &&
-        TENURE_KEYS.includes(parsed.groundSalarySelection.tenure)
-      ) {
-        setGroundSalarySelection(parsed.groundSalarySelection);
-      }
-    } catch {
-      // ignore broken localStorage payload
-    }
-  }, []);
-
-  React.useEffect(() => {
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        selectedCalendarYear,
-        groundSalarySelection,
-      }),
-    );
-  }, [selectedCalendarYear, groundSalarySelection]);
+  function setAllowanceAmount(key: AllowanceKey, amount: number) {
+    setAllowanceAmounts((prev) => ({ ...prev, [key]: amount }));
+  }
 
   const selectedTariffDate = resolveTariffDate(selectedCalendarYear);
   const selectedTariff = DEFAULT_TARIFFS[selectedTariffDate];
@@ -98,6 +90,10 @@ export function LoneberakningProvider({
         setGroundSalarySelection,
         selectedTariffDate,
         selectedTariff,
+        activeAllowances,
+        toggleAllowance,
+        allowanceAmounts,
+        setAllowanceAmount,
       }}
     >
       {children}
