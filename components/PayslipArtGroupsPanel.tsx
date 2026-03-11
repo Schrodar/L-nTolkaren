@@ -24,6 +24,7 @@ function MonthCalendar({
   monthISO,
   overtimeBreakdownByDayISO,
   workDaysISO,
+  workHoursByDayISO,
   art302DatesISO,
   art302BreakdownByDayISO,
   sicknessDaysISO,
@@ -35,9 +36,16 @@ function MonthCalendar({
   monthISO: string;
   overtimeBreakdownByDayISO?: Record<
     string,
-    { minutes301?: number; minutes311?: number; minutes31101?: number; minutes312?: number; minutes31201?: number }
+    {
+      minutes301?: number;
+      minutes311?: number;
+      minutes31101?: number;
+      minutes312?: number;
+      minutes31201?: number;
+    }
   >;
   workDaysISO?: string[];
+  workHoursByDayISO?: Record<string, number>;
   art302DatesISO?: string[];
   art302BreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
   sicknessDaysISO?: string[];
@@ -54,40 +62,97 @@ function MonthCalendar({
   const [hoveredISO, setHoveredISO] = React.useState<string | null>(null);
   const [selectedISO, setSelectedISO] = React.useState<string | null>(null);
 
-  const breakdown = React.useMemo(() => overtimeBreakdownByDayISO ?? {}, [overtimeBreakdownByDayISO]);
-  const workSet = React.useMemo(() => new Set(workDaysISO ?? []), [workDaysISO]);
-  const art302Set = React.useMemo(() => new Set(art302DatesISO ?? []), [art302DatesISO]);
-  const art302Breakdown = React.useMemo(() => art302BreakdownByDayISO ?? {}, [art302BreakdownByDayISO]);
-  const sicknessSet = React.useMemo(() => new Set(sicknessDaysISO ?? []), [sicknessDaysISO]);
-  const semesterSet = React.useMemo(() => new Set(semesterDaysISO ?? []), [semesterDaysISO]);
+  const breakdown = React.useMemo(
+    () => overtimeBreakdownByDayISO ?? {},
+    [overtimeBreakdownByDayISO],
+  );
+  const workSet = React.useMemo(
+    () => new Set(workDaysISO ?? []),
+    [workDaysISO],
+  );
+  const art302Set = React.useMemo(
+    () => new Set(art302DatesISO ?? []),
+    [art302DatesISO],
+  );
+  const art302Breakdown = React.useMemo(
+    () => art302BreakdownByDayISO ?? {},
+    [art302BreakdownByDayISO],
+  );
+  const workHoursByDay = React.useMemo(
+    () => workHoursByDayISO ?? {},
+    [workHoursByDayISO],
+  );
+  const sicknessSet = React.useMemo(
+    () => new Set(sicknessDaysISO ?? []),
+    [sicknessDaysISO],
+  );
+  const semesterSet = React.useMemo(
+    () => new Set(semesterDaysISO ?? []),
+    [semesterDaysISO],
+  );
   const vabSet = React.useMemo(() => new Set(vabDaysISO ?? []), [vabDaysISO]);
-  const vabBreakdown = React.useMemo(() => vabBreakdownByDayISO ?? {}, [vabBreakdownByDayISO]);
+  const vabBreakdown = React.useMemo(
+    () => vabBreakdownByDayISO ?? {},
+    [vabBreakdownByDayISO],
+  );
 
   const minutesForISO = React.useCallback(
-    (iso: string): { total: number; minutes301: number; minutes311: number; minutes31101: number; minutes312: number; minutes31201: number } => {
+    (
+      iso: string,
+    ): {
+      total: number;
+      minutes301: number;
+      minutes311: number;
+      minutes31101: number;
+      minutes312: number;
+      minutes31201: number;
+    } => {
       const b = breakdown[iso] ?? {};
-      const minutes301 = typeof b.minutes301 === 'number' && Number.isFinite(b.minutes301) ? b.minutes301 : 0;
-      const minutes311 = typeof b.minutes311 === 'number' && Number.isFinite(b.minutes311) ? b.minutes311 : 0;
-      const minutes31101 = typeof b.minutes31101 === 'number' && Number.isFinite(b.minutes31101) ? b.minutes31101 : 0;
-      const minutes312 = typeof b.minutes312 === 'number' && Number.isFinite(b.minutes312) ? b.minutes312 : 0;
-      const minutes31201 = typeof b.minutes31201 === 'number' && Number.isFinite(b.minutes31201) ? b.minutes31201 : 0;
+      const minutes301 =
+        typeof b.minutes301 === 'number' && Number.isFinite(b.minutes301)
+          ? b.minutes301
+          : 0;
+      const minutes311 =
+        typeof b.minutes311 === 'number' && Number.isFinite(b.minutes311)
+          ? b.minutes311
+          : 0;
+      const minutes31101 =
+        typeof b.minutes31101 === 'number' && Number.isFinite(b.minutes31101)
+          ? b.minutes31101
+          : 0;
+      const minutes312 =
+        typeof b.minutes312 === 'number' && Number.isFinite(b.minutes312)
+          ? b.minutes312
+          : 0;
+      const minutes31201 =
+        typeof b.minutes31201 === 'number' && Number.isFinite(b.minutes31201)
+          ? b.minutes31201
+          : 0;
 
       // Avoid double-counting qualified comp time when 31201 exists.
       const qual = minutes31201 > 0 ? minutes31201 : minutes312;
 
-      return { total: minutes301 + minutes311 + minutes31101 + qual, minutes301, minutes311, minutes31101, minutes312, minutes31201 };
+      return {
+        total: minutes301 + minutes311 + minutes31101 + qual,
+        minutes301,
+        minutes311,
+        minutes31101,
+        minutes312,
+        minutes31201,
+      };
     },
-    [breakdown]
+    [breakdown],
   );
 
   const fmtHours = React.useMemo(
     () => new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 2 }),
-    []
+    [],
   );
 
   const fmtSek = React.useMemo(
-    () => new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK' }),
-    []
+    () =>
+      new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK' }),
+    [],
   );
 
   // Express (ART 315) modal animation: continuous horizontal figure-eight (∞) + roll.
@@ -111,42 +176,70 @@ function MonthCalendar({
 
   const selectedInfo = selectedISO
     ? minutesForISO(selectedISO)
-    : { total: 0, minutes301: 0, minutes311: 0, minutes31101: 0, minutes312: 0, minutes31201: 0 };
+    : {
+        total: 0,
+        minutes301: 0,
+        minutes311: 0,
+        minutes31101: 0,
+        minutes312: 0,
+        minutes31201: 0,
+      };
 
-  const qualRelationNote = React.useCallback((minutes312: number, minutes31201: number): string | null => {
-    const has312 = minutes312 > 0;
-    const has31201 = minutes31201 > 0;
+  const qualRelationNote = React.useCallback(
+    (minutes312: number, minutes31201: number): string | null => {
+      const has312 = minutes312 > 0;
+      const has31201 = minutes31201 > 0;
 
-    if (!has312 && !has31201) return null;
-    if (has31201 && !has312) return 'OBS: 31201 finns men ART 312 saknas för datumet.';
-    if (has312 && !has31201) return 'OBS: ART 312 finns men 31201 (2×) saknas för datumet.';
+      if (!has312 && !has31201) return null;
+      if (has31201 && !has312)
+        return 'OBS: 31201 finns men ART 312 saknas för datumet.';
+      if (has312 && !has31201)
+        return 'OBS: ART 312 finns men 31201 (2×) saknas för datumet.';
 
-    const expected = 2 * minutes312;
-    const diff = Math.abs(minutes31201 - expected);
-    const tol = 1; // minute tolerance after rounding
-    if (diff <= tol) return 'OK: 31201 = 2×312 för datumet.';
+      const expected = 2 * minutes312;
+      const diff = Math.abs(minutes31201 - expected);
+      const tol = 1; // minute tolerance after rounding
+      if (diff <= tol) return 'OK: 31201 = 2×312 för datumet.';
 
-    // Show both values in hours (decimal) for easier human verification.
-    const h312 = fmtHours.format(minutes312 / 60);
-    const h31201 = fmtHours.format(minutes31201 / 60);
-    const hExpected = fmtHours.format(expected / 60);
-    return `OBS: 31201 stämmer inte mot 2×312 (${h31201} h vs förväntat ${hExpected} h, 312=${h312} h).`;
-  }, [fmtHours]);
+      // Show both values in hours (decimal) for easier human verification.
+      const h312 = fmtHours.format(minutes312 / 60);
+      const h31201 = fmtHours.format(minutes31201 / 60);
+      const hExpected = fmtHours.format(expected / 60);
+      return `OBS: 31201 stämmer inte mot 2×312 (${h31201} h vs förväntat ${hExpected} h, 312=${h312} h).`;
+    },
+    [fmtHours],
+  );
 
   const selectedVab = React.useMemo(() => {
     if (!selectedISO) return null;
     const v = vabBreakdown[selectedISO];
-    const hours = typeof v?.hours === 'number' && Number.isFinite(v.hours) ? v.hours : 0;
-    const sek = typeof v?.sek === 'number' && Number.isFinite(v.sek) ? v.sek : 0;
+    const hours =
+      typeof v?.hours === 'number' && Number.isFinite(v.hours) ? v.hours : 0;
+    const sek =
+      typeof v?.sek === 'number' && Number.isFinite(v.sek) ? v.sek : 0;
     if (hours === 0 && sek === 0) return null;
     return { hours, sek };
   }, [selectedISO, vabBreakdown]);
 
+  const selectedHasVabDay = React.useMemo(() => {
+    return (
+      !!selectedISO && (vabSet.has(selectedISO) || !!vabBreakdown[selectedISO])
+    );
+  }, [selectedISO, vabSet, vabBreakdown]);
+
+  const selectedWorkHours = React.useMemo(() => {
+    if (!selectedISO) return 0;
+    const hours = workHoursByDay[selectedISO];
+    return typeof hours === 'number' && Number.isFinite(hours) ? hours : 0;
+  }, [selectedISO, workHoursByDay]);
+
   const selectedArt302 = React.useMemo(() => {
     if (!selectedISO) return null;
     const v = art302Breakdown[selectedISO];
-    const hours = typeof v?.hours === 'number' && Number.isFinite(v.hours) ? v.hours : 0;
-    const sek = typeof v?.sek === 'number' && Number.isFinite(v.sek) ? v.sek : 0;
+    const hours =
+      typeof v?.hours === 'number' && Number.isFinite(v.hours) ? v.hours : 0;
+    const sek =
+      typeof v?.sek === 'number' && Number.isFinite(v.sek) ? v.sek : 0;
     if (hours === 0 && sek === 0) return null;
     return { hours, sek };
   }, [selectedISO, art302Breakdown]);
@@ -164,12 +257,29 @@ function MonthCalendar({
   }, [selectedISO, sicknessSet]);
 
   const selectedShowExpress = React.useMemo(() => {
-    return !!selectedISO && selectedHasWorkDay && !selectedHasSemester && !selectedHasSickness && !selectedVab;
-  }, [selectedISO, selectedHasWorkDay, selectedHasSemester, selectedHasSickness, selectedVab]);
+    return (
+      !!selectedISO &&
+      selectedHasWorkDay &&
+      !selectedHasSemester &&
+      !selectedHasSickness &&
+      !selectedHasVabDay
+    );
+  }, [
+    selectedISO,
+    selectedHasWorkDay,
+    selectedHasSemester,
+    selectedHasSickness,
+    selectedHasVabDay,
+  ]);
 
   const isModalOpen =
     !!selectedISO &&
-    (selectedInfo.total > 0 || !!selectedArt302 || !!selectedVab || selectedHasSemester || selectedHasSickness || selectedHasWorkDay);
+    (selectedInfo.total > 0 ||
+      !!selectedArt302 ||
+      selectedHasVabDay ||
+      selectedHasSemester ||
+      selectedHasSickness ||
+      selectedHasWorkDay);
 
   React.useEffect(() => {
     if (!isModalOpen) return;
@@ -188,13 +298,17 @@ function MonthCalendar({
   }
   while (cells.length % 7 !== 0) cells.push({});
 
-  const monthLabel = new Intl.DateTimeFormat('sv-SE', { year: 'numeric', month: 'long' }).format(
-    new Date(y, m - 1, 1)
-  );
+  const monthLabel = new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric',
+    month: 'long',
+  }).format(new Date(y, m - 1, 1));
 
-  const overtimeCount = Object.keys(breakdown).filter((d) => d.startsWith(monthISO) && minutesForISO(d).total > 0)
-    .length;
-  const workCount = (workDaysISO ?? []).filter((d) => d.startsWith(monthISO)).length;
+  const overtimeCount = Object.keys(breakdown).filter(
+    (d) => d.startsWith(monthISO) && minutesForISO(d).total > 0,
+  ).length;
+  const workCount = (workDaysISO ?? []).filter((d) =>
+    d.startsWith(monthISO),
+  ).length;
   const markedCount = new Set([
     ...Object.keys(breakdown).filter((d) => minutesForISO(d).total > 0),
     ...(workDaysISO ?? []),
@@ -208,12 +322,19 @@ function MonthCalendar({
     <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
       <div className="flex items-end justify-between">
         <div>
-          <div className="text-xs uppercase tracking-wide text-gray-500">Kalender</div>
-          <div className="mt-1 text-sm font-semibold text-gray-900 capitalize">{monthLabel}</div>
-          {caption ? <div className="mt-1 text-[11px] text-gray-500">{caption}</div> : null}
+          <div className="text-xs uppercase tracking-wide text-gray-500">
+            Kalender
+          </div>
+          <div className="mt-1 text-sm font-semibold text-gray-900 capitalize">
+            {monthLabel}
+          </div>
+          {caption ? (
+            <div className="mt-1 text-[11px] text-gray-500">{caption}</div>
+          ) : null}
         </div>
         <div className="text-xs text-gray-600">
-          Markerade: <span className="font-semibold text-gray-900">{markedCount}</span>
+          Markerade:{' '}
+          <span className="font-semibold text-gray-900">{markedCount}</span>
         </div>
       </div>
 
@@ -229,19 +350,36 @@ function MonthCalendar({
         {cells.map((c, idx) => {
           const minutesInfo = c.iso
             ? minutesForISO(c.iso)
-            : { total: 0, minutes301: 0, minutes311: 0, minutes31101: 0, minutes312: 0, minutes31201: 0 };
+            : {
+                total: 0,
+                minutes301: 0,
+                minutes311: 0,
+                minutes31101: 0,
+                minutes312: 0,
+                minutes31201: 0,
+              };
           const hasMinutes = minutesInfo.total > 0;
           const isWorkDay = !!c.iso && workSet.has(c.iso);
-          const hasArt302 = !!c.iso && (art302Set.has(c.iso) || !!art302Breakdown[c.iso]);
+          const hasArt302 =
+            !!c.iso && (art302Set.has(c.iso) || !!art302Breakdown[c.iso]);
           const hasSickness = !!c.iso && sicknessSet.has(c.iso);
           const hasSemester = !!c.iso && semesterSet.has(c.iso);
-          const hasVab = !!c.iso && (vabSet.has(c.iso) || !!vabBreakdown[c.iso]);
+          const hasVab =
+            !!c.iso && (vabSet.has(c.iso) || !!vabBreakdown[c.iso]);
 
-          const isClickable = !!c.iso && (hasMinutes || hasArt302 || hasSickness || hasVab || hasSemester || isWorkDay);
+          const isClickable =
+            !!c.iso &&
+            (hasMinutes ||
+              hasArt302 ||
+              hasSickness ||
+              hasVab ||
+              hasSemester ||
+              isWorkDay);
 
           const isRedDay = hasMinutes || hasArt302;
           const showTicktack = hasMinutes || hasArt302;
-          const showExpress = isWorkDay && !hasSemester && !hasVab && !hasSickness;
+          const showExpress =
+            isWorkDay && !hasSemester && !hasVab && !hasSickness;
           const hoverTitle = c.iso ? c.iso : '';
           const isHovered = !!c.iso && hoveredISO === c.iso;
           return (
@@ -278,14 +416,23 @@ function MonthCalendar({
                 if (e.key === 'Enter' || e.key === ' ') setSelectedISO(c.iso);
               }}
             >
-              {hasSemester || hasVab || showTicktack || hasSickness || showExpress ? (
+              {hasSemester ||
+              hasVab ||
+              showTicktack ||
+              hasSickness ||
+              showExpress ? (
                 <span
                   aria-hidden="true"
                   className="absolute right-0.5 -top-2 flex items-center gap-0.5"
                 >
                   {hasSemester ? (
                     <span className="h-5 w-5 shrink-0">
-                      <Image src="/semester.png" alt="" width={20} height={20} />
+                      <Image
+                        src="/semester.png"
+                        alt=""
+                        width={20}
+                        height={20}
+                      />
                     </span>
                   ) : null}
 
@@ -309,7 +456,12 @@ function MonthCalendar({
 
                   {showTicktack ? (
                     <span className="h-5 w-5 shrink-0">
-                      <Image src="/ticktack.png" alt="" width={20} height={20} />
+                      <Image
+                        src="/ticktack.png"
+                        alt=""
+                        width={20}
+                        height={20}
+                      />
                     </span>
                   ) : null}
                 </span>
@@ -323,50 +475,88 @@ function MonthCalendar({
                     'border-gray-200 bg-white px-3 py-2 text-left text-xs text-gray-800 shadow-lg',
                   ].join(' ')}
                 >
-                  <div className="text-[11px] font-semibold text-gray-900">Övertid</div>
-                  <div className="mt-0.5 text-[11px] text-gray-600">{c.iso}</div>
+                  <div className="text-[11px] font-semibold text-gray-900">
+                    Övertid
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-gray-600">
+                    {c.iso}
+                  </div>
 
                   {hasMinutes ? (
                     <>
-                      <div className="mt-1 font-semibold text-gray-900">{minutesToLabel(minutesInfo.total)}</div>
+                      <div className="mt-1 font-semibold text-gray-900">
+                        {minutesToLabel(minutesInfo.total)}
+                      </div>
                       <div className="mt-1 text-[11px] text-gray-600">
-                        301 utbetald: {minutesInfo.minutes301 ? minutesToLabel(minutesInfo.minutes301) : '–'}
+                        301 utbetald:{' '}
+                        {minutesInfo.minutes301
+                          ? minutesToLabel(minutesInfo.minutes301)
+                          : '–'}
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-600">
-                        311 komp: {minutesInfo.minutes311 ? minutesToLabel(minutesInfo.minutes311) : '–'}
+                        311 komp:{' '}
+                        {minutesInfo.minutes311
+                          ? minutesToLabel(minutesInfo.minutes311)
+                          : '–'}
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-600">
-                        31101 komp (1,4x): {minutesInfo.minutes31101 ? minutesToLabel(minutesInfo.minutes31101) : '–'}
+                        31101 komp (1,4x):{' '}
+                        {minutesInfo.minutes31101
+                          ? minutesToLabel(minutesInfo.minutes31101)
+                          : '–'}
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-600">
-                        312 kval komp: {minutesInfo.minutes312 ? minutesToLabel(minutesInfo.minutes312) : '–'}
+                        312 kval komp:{' '}
+                        {minutesInfo.minutes312
+                          ? minutesToLabel(minutesInfo.minutes312)
+                          : '–'}
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-600">
-                        31201 kval omräkning (2x): {minutesInfo.minutes31201 ? minutesToLabel(minutesInfo.minutes31201) : '–'}
+                        31201 kval omräkning (2x):{' '}
+                        {minutesInfo.minutes31201
+                          ? minutesToLabel(minutesInfo.minutes31201)
+                          : '–'}
                       </div>
 
                       {(() => {
-                        const note = qualRelationNote(minutesInfo.minutes312, minutesInfo.minutes31201);
-                        return note ? <div className="mt-1 text-[11px] text-amber-700">{note}</div> : null;
+                        const note = qualRelationNote(
+                          minutesInfo.minutes312,
+                          minutesInfo.minutes31201,
+                        );
+                        return note ? (
+                          <div className="mt-1 text-[11px] text-amber-700">
+                            {note}
+                          </div>
+                        ) : null;
                       })()}
                     </>
                   ) : null}
 
                   {hasArt302 ? (
                     <>
-                      <div className={hasMinutes ? 'mt-2 text-[11px] font-semibold text-gray-900' : 'mt-1 text-[11px] font-semibold text-gray-900'}>
+                      <div
+                        className={
+                          hasMinutes
+                            ? 'mt-2 text-[11px] font-semibold text-gray-900'
+                            : 'mt-1 text-[11px] font-semibold text-gray-900'
+                        }
+                      >
                         302 kvalificerad
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-600">
-                        Timmar: {fmtHours.format(art302Breakdown[c.iso!]?.hours ?? 0)} h
+                        Timmar:{' '}
+                        {fmtHours.format(art302Breakdown[c.iso!]?.hours ?? 0)} h
                       </div>
                       <div className="mt-0.5 text-[11px] text-gray-600">
-                        Summa: {fmtSek.format(art302Breakdown[c.iso!]?.sek ?? 0)}
+                        Summa:{' '}
+                        {fmtSek.format(art302Breakdown[c.iso!]?.sek ?? 0)}
                       </div>
                     </>
                   ) : null}
 
-                  <div className="mt-1 text-[11px] text-gray-500">Klicka för mer info</div>
+                  <div className="mt-1 text-[11px] text-gray-500">
+                    Klicka för mer info
+                  </div>
                 </div>
               ) : null}
 
@@ -377,16 +567,22 @@ function MonthCalendar({
       </div>
 
       <div className="mt-3 text-[11px] text-gray-500">
-        Ticktack-ikon = övertid (ART 301/302/311/31101/312/31201). Hover visar info, klick öppnar popup.
-        <span className="ml-2">Express-ikon = arbete (ART 315) när inga andra ikoner syns (förutom ticktack).</span>
+        Ticktack-ikon = övertid (ART 301/302/311/31101/312/31201). Hover visar
+        info, klick öppnar popup.
+        <span className="ml-2">
+          Express-ikon = arbete (ART 315) när inga andra ikoner syns (förutom
+          ticktack).
+        </span>
         <span className="ml-2">Gul markering + ikon = semester (ART 700).</span>
         <span className="ml-2">Ikon = VAB (ART 810/81001).</span>
         <span className="ml-2">Temp-ikon = sjukdom (ART 80001).</span>
       </div>
 
       <div className="mt-1 text-[11px] text-gray-500">
-        Denna månad: övertid <span className="font-semibold text-gray-700">{overtimeCount}</span>, arbete{' '}
-        <span className="font-semibold text-gray-700">{workCount}</span>, totalt markerade{' '}
+        Denna månad: övertid{' '}
+        <span className="font-semibold text-gray-700">{overtimeCount}</span>,
+        arbete <span className="font-semibold text-gray-700">{workCount}</span>,
+        totalt markerade{' '}
         <span className="font-semibold text-gray-700">{markedCount}</span>.
       </div>
 
@@ -408,15 +604,24 @@ function MonthCalendar({
                 <div className="text-xs uppercase tracking-wide text-gray-500">
                   {selectedInfo.total > 0 || selectedArt302
                     ? 'Övertid'
-                    : selectedHasWorkDay && selectedVab && selectedHasSemester && selectedHasSickness
+                    : selectedHasWorkDay &&
+                        selectedHasVabDay &&
+                        selectedHasSemester &&
+                        selectedHasSickness
                       ? 'Arbete + VAB + semester + sjukdom'
-                      : selectedHasWorkDay && selectedVab && selectedHasSemester
+                      : selectedHasWorkDay &&
+                          selectedHasVabDay &&
+                          selectedHasSemester
                         ? 'Arbete + VAB + semester'
-                        : selectedHasWorkDay && selectedVab && selectedHasSickness
+                        : selectedHasWorkDay &&
+                            selectedHasVabDay &&
+                            selectedHasSickness
                           ? 'Arbete + VAB + sjukdom'
-                          : selectedHasWorkDay && selectedHasSemester && selectedHasSickness
+                          : selectedHasWorkDay &&
+                              selectedHasSemester &&
+                              selectedHasSickness
                             ? 'Arbete + semester + sjukdom'
-                            : selectedHasWorkDay && selectedVab
+                            : selectedHasWorkDay && selectedHasVabDay
                               ? 'Arbete + VAB'
                               : selectedHasWorkDay && selectedHasSemester
                                 ? 'Arbete + semester'
@@ -424,23 +629,29 @@ function MonthCalendar({
                                   ? 'Arbete + sjukdom'
                                   : selectedHasWorkDay
                                     ? 'Arbete'
-                    : selectedVab && selectedHasSemester && selectedHasSickness
-                      ? 'VAB + semester + sjukdom'
-                      : selectedVab && selectedHasSemester
-                        ? 'VAB + semester'
-                        : selectedVab && selectedHasSickness
-                          ? 'VAB + sjukdom'
-                          : selectedHasSemester && selectedHasSickness
-                            ? 'Semester + sjukdom'
-                            : selectedVab
-                              ? 'VAB'
-                              : selectedHasSemester
-                                ? 'Semester'
-                                : selectedHasSickness
-                                  ? 'Sjukdom'
-                                  : 'Dag'}
+                                    : selectedHasVabDay &&
+                                        selectedHasSemester &&
+                                        selectedHasSickness
+                                      ? 'VAB + semester + sjukdom'
+                                      : selectedHasVabDay && selectedHasSemester
+                                        ? 'VAB + semester'
+                                        : selectedHasVabDay &&
+                                            selectedHasSickness
+                                          ? 'VAB + sjukdom'
+                                          : selectedHasSemester &&
+                                              selectedHasSickness
+                                            ? 'Semester + sjukdom'
+                                            : selectedHasVabDay
+                                              ? 'VAB'
+                                              : selectedHasSemester
+                                                ? 'Semester'
+                                                : selectedHasSickness
+                                                  ? 'Sjukdom'
+                                                  : 'Dag'}
                 </div>
-                <div className="mt-1 text-sm font-semibold text-gray-900">{selectedISO}</div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">
+                  {selectedISO}
+                </div>
               </div>
               <button
                 type="button"
@@ -451,26 +662,50 @@ function MonthCalendar({
               </button>
             </div>
 
-            {selectedInfo.total <= 0 && (selectedHasWorkDay || selectedVab || selectedHasSemester || selectedHasSickness) ? (
+            {selectedInfo.total <= 0 &&
+            (selectedHasWorkDay ||
+              selectedVab ||
+              selectedHasSemester ||
+              selectedHasSickness) ? (
               <div className="mt-4 flex items-center justify-center gap-6">
                 {selectedShowExpress ? (
                   <motion.div
-                    style={{ x: expressX, y: expressY, rotate: expressRotate, willChange: 'transform' }}
+                    style={{
+                      x: expressX,
+                      y: expressY,
+                      rotate: expressRotate,
+                      willChange: 'transform',
+                    }}
                   >
-                    <Image src="/express.png" alt="Arbete" width={120} height={120} />
+                    <Image
+                      src="/express.png"
+                      alt="Arbete"
+                      width={120}
+                      height={120}
+                    />
                   </motion.div>
                 ) : null}
                 {selectedHasSemester ? (
                   <div className="animate-gentle-bounce">
-                    <Image src="/semester.png" alt="Semester" width={120} height={120} />
+                    <Image
+                      src="/semester.png"
+                      alt="Semester"
+                      width={120}
+                      height={120}
+                    />
                   </div>
                 ) : null}
                 {selectedHasSickness ? (
                   <div className="animate-gentle-bounce">
-                    <Image src="/temp.png" alt="Sjukdom" width={120} height={120} />
+                    <Image
+                      src="/temp.png"
+                      alt="Sjukdom"
+                      width={120}
+                      height={120}
+                    />
                   </div>
                 ) : null}
-                {selectedVab ? (
+                {selectedHasVabDay ? (
                   <div className="animate-gentle-bounce">
                     <Image src="/vab.png" alt="VAB" width={120} height={120} />
                   </div>
@@ -480,7 +715,9 @@ function MonthCalendar({
 
             {selectedInfo.total > 0 || selectedArt302 ? (
               <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
-                <div className="text-xs font-semibold text-gray-700">Övertid</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  Övertid
+                </div>
 
                 {selectedInfo.total > 0 ? (
                   <>
@@ -488,30 +725,72 @@ function MonthCalendar({
                       {minutesToLabel(selectedInfo.total)}
                     </div>
                     <div className="mt-2 text-xs text-gray-700">
-                      <div>ART 301 (utbetald): {selectedInfo.minutes301 ? minutesToLabel(selectedInfo.minutes301) : '–'}</div>
-                      <div>ART 311 (till komp): {selectedInfo.minutes311 ? minutesToLabel(selectedInfo.minutes311) : '–'}</div>
-                      <div>ART 31101 (till komp, 1,4x): {selectedInfo.minutes31101 ? minutesToLabel(selectedInfo.minutes31101) : '–'}</div>
-                      <div>ART 312 (kval till komp): {selectedInfo.minutes312 ? minutesToLabel(selectedInfo.minutes312) : '–'}</div>
-                      <div>ART 31201 (kval omräkning, 2x): {selectedInfo.minutes31201 ? minutesToLabel(selectedInfo.minutes31201) : '–'}</div>
+                      <div>
+                        ART 301 (utbetald):{' '}
+                        {selectedInfo.minutes301
+                          ? minutesToLabel(selectedInfo.minutes301)
+                          : '–'}
+                      </div>
+                      <div>
+                        ART 311 (till komp):{' '}
+                        {selectedInfo.minutes311
+                          ? minutesToLabel(selectedInfo.minutes311)
+                          : '–'}
+                      </div>
+                      <div>
+                        ART 31101 (till komp, 1,4x):{' '}
+                        {selectedInfo.minutes31101
+                          ? minutesToLabel(selectedInfo.minutes31101)
+                          : '–'}
+                      </div>
+                      <div>
+                        ART 312 (kval till komp):{' '}
+                        {selectedInfo.minutes312
+                          ? minutesToLabel(selectedInfo.minutes312)
+                          : '–'}
+                      </div>
+                      <div>
+                        ART 31201 (kval omräkning, 2x):{' '}
+                        {selectedInfo.minutes31201
+                          ? minutesToLabel(selectedInfo.minutes31201)
+                          : '–'}
+                      </div>
 
                       {(() => {
-                        const note = qualRelationNote(selectedInfo.minutes312, selectedInfo.minutes31201);
-                        return note ? <div className="mt-2 text-amber-700">{note}</div> : null;
+                        const note = qualRelationNote(
+                          selectedInfo.minutes312,
+                          selectedInfo.minutes31201,
+                        );
+                        return note ? (
+                          <div className="mt-2 text-amber-700">{note}</div>
+                        ) : null;
                       })()}
                     </div>
                   </>
                 ) : null}
 
                 {selectedArt302 ? (
-                  <div className={selectedInfo.total > 0 ? 'mt-3 rounded-lg border border-red-100 bg-white p-3' : 'mt-2 rounded-lg border border-red-100 bg-white p-3'}>
-                    <div className="text-xs font-semibold text-gray-700">ART 302 (kvalificerad)</div>
+                  <div
+                    className={
+                      selectedInfo.total > 0
+                        ? 'mt-3 rounded-lg border border-red-100 bg-white p-3'
+                        : 'mt-2 rounded-lg border border-red-100 bg-white p-3'
+                    }
+                  >
+                    <div className="text-xs font-semibold text-gray-700">
+                      ART 302 (kvalificerad)
+                    </div>
                     <div className="mt-1 flex items-center justify-between text-sm">
                       <div className="text-gray-600">Timmar</div>
-                      <div className="tabular-nums font-semibold text-gray-900">{fmtHours.format(selectedArt302.hours)} h</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {fmtHours.format(selectedArt302.hours)} h
+                      </div>
                     </div>
                     <div className="mt-1 flex items-center justify-between text-sm">
                       <div className="text-gray-600">Summa</div>
-                      <div className="tabular-nums font-semibold text-gray-900">{fmtSek.format(selectedArt302.sek)}</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {fmtSek.format(selectedArt302.sek)}
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -520,45 +799,81 @@ function MonthCalendar({
 
             {selectedHasSemester ? (
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <div className="text-xs font-semibold text-gray-700">Semester (700)</div>
-                <div className="mt-1 text-sm text-gray-700">Denna dag är markerad som semester.</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  Semester (700)
+                </div>
+                <div className="mt-1 text-sm text-gray-700">
+                  Denna dag är markerad som semester.
+                </div>
               </div>
             ) : null}
 
             {selectedHasWorkDay ? (
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <div className="text-xs font-semibold text-gray-700">Arbete (315)</div>
-                <div className="mt-1 text-sm text-gray-700">Denna dag är markerad som arbetstid (ART 315).</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  Arbete (315)
+                </div>
+                <div className="mt-1 text-sm text-gray-700">
+                  Timmar som har registrerats denna dag (summa):{' '}
+                  <span className="tabular-nums font-semibold text-gray-900">
+                    {fmtHours.format(selectedWorkHours)} h
+                  </span>
+                </div>
               </div>
             ) : null}
 
             {selectedHasSickness ? (
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <div className="text-xs font-semibold text-gray-700">Sjukdom (80001)</div>
-                <div className="mt-1 text-sm text-gray-700">Denna dag är markerad som sjukdom/karenstillfälle.</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  Sjukdom (80001)
+                </div>
+                <div className="mt-1 text-sm text-gray-700">
+                  Denna dag är markerad som sjukdom/karenstillfälle.
+                </div>
               </div>
             ) : null}
 
-            {selectedVab ? (
+            {selectedHasVabDay ? (
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <div className="text-xs font-semibold text-gray-700">VAB (81001)</div>
-                <div className="mt-1 flex items-center justify-between text-sm">
-                  <div className="text-gray-600">Tid</div>
-                  <div className="tabular-nums font-semibold text-gray-900">{fmtHours.format(selectedVab.hours)} h</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  VAB (81001)
                 </div>
-                <div className="mt-1 flex items-center justify-between text-sm">
-                  <div className="text-gray-600">Summa</div>
-                  <div className="tabular-nums font-semibold text-gray-900">{fmtSek.format(selectedVab.sek)}</div>
-                </div>
+                {selectedVab ? (
+                  <>
+                    <div className="mt-1 flex items-center justify-between text-sm">
+                      <div className="text-gray-600">Tid</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {fmtHours.format(selectedVab.hours)} h
+                      </div>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-sm">
+                      <div className="text-gray-600">Summa</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {fmtSek.format(selectedVab.sek)}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-1 text-sm text-gray-700">
+                    Denna dag är markerad som VAB.
+                  </div>
+                )}
               </div>
             ) : null}
 
-            <div className="mt-3 text-[11px] text-gray-500">Tips: Tryck ESC för att stänga.</div>
+            <div className="mt-3 text-[11px] text-gray-500">
+              Tips: Tryck ESC för att stänga.
+            </div>
 
             {selectedInfo.total > 0 || selectedArt302 ? (
               <div className="pointer-events-none absolute bottom-3 right-3 opacity-90">
                 <div className="rotate-[20deg]">
-                  <Image src="/ticktack.png" alt="Övertid" width={96} height={96} />
+                  <Image
+                    src="/ticktack.png"
+                    alt="Övertid"
+                    width={96}
+                    height={96}
+                  />
                 </div>
               </div>
             ) : null}
@@ -573,13 +888,22 @@ function countRows(groups: PayslipArtGroups['artGroups']) {
   return groups.reduce((sum, g) => sum + (g.rows?.length ?? 0), 0);
 }
 
-export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArtGroups) {
+export function PayslipArtGroupsPanel({
+  fileName,
+  artGroups,
+  lines,
+}: PayslipArtGroups) {
   const totalRows = React.useMemo(() => countRows(artGroups), [artGroups]);
 
-  const overview = React.useMemo(() => summarizePayslipArtGroups(artGroups), [artGroups]);
+  const overview = React.useMemo(
+    () => summarizePayslipArtGroups(artGroups),
+    [artGroups],
+  );
 
   const sorted = React.useMemo(() => {
-    return [...artGroups].sort((a, b) => (b.rows?.length ?? 0) - (a.rows?.length ?? 0));
+    return [...artGroups].sort(
+      (a, b) => (b.rows?.length ?? 0) - (a.rows?.length ?? 0),
+    );
   }, [artGroups]);
 
   const artsCoveredInOverview = React.useMemo(() => {
@@ -629,7 +953,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   }, [overview]);
 
   const byArtNotInOverview = React.useMemo(() => {
-    return (overview.byArt ?? []).filter((r) => !artsCoveredInOverview.has(r.art));
+    return (overview.byArt ?? []).filter(
+      (r) => !artsCoveredInOverview.has(r.art),
+    );
   }, [overview.byArt, artsCoveredInOverview]);
 
   const sortedNotInOverview = React.useMemo(() => {
@@ -637,19 +963,29 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   }, [sorted, artsCoveredInOverview]);
 
   const formatSek = React.useCallback((n: number) => {
-    return new Intl.NumberFormat('sv-SE', { style: 'currency', currency: 'SEK' }).format(n);
+    return new Intl.NumberFormat('sv-SE', {
+      style: 'currency',
+      currency: 'SEK',
+    }).format(n);
   }, []);
 
   const formatSekNumber = React.useCallback((n: number) => {
-    return new Intl.NumberFormat('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+    return new Intl.NumberFormat('sv-SE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
   }, []);
 
   const formatInt = React.useCallback((n: number) => {
-    return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 }).format(n);
+    return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 }).format(
+      n,
+    );
   }, []);
 
   const formatHours = React.useCallback((n: number) => {
-    return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 2 }).format(n);
+    return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 2 }).format(
+      n,
+    );
   }, []);
 
   const art315 = overview.art315;
@@ -691,7 +1027,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
       const y = Number(m[1]);
       const mo = Number(m[2]);
       const d = Number(m[3]);
-      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d)) return null;
+      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d))
+        return null;
       return Date.UTC(y, mo - 1, d);
     };
 
@@ -706,7 +1043,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
       const curISO = dates[i];
       const curMs = utcMs(curISO);
       const isContiguous =
-        typeof prevMs === 'number' && typeof curMs === 'number' ? curMs - prevMs === oneDay : false;
+        typeof prevMs === 'number' && typeof curMs === 'number'
+          ? curMs - prevMs === oneDay
+          : false;
 
       if (!isContiguous) {
         out.push({ fromISO, toISO: prevISO });
@@ -729,6 +1068,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const art0644 = overview.art0644;
   const art070 = overview.art070;
   const art4851 = overview.art4851;
+  const art534 = overview.art534;
   const art350 = overview.art350;
   const art80001 = overview.art80001;
   const art70001 = overview.art70001;
@@ -742,8 +1082,17 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const moneyOverview = React.useMemo(() => {
     const items: Array<{ label: string; amount: number; count?: number }> = [];
 
-    const pushIfNumber = (label: string, amount: number | null | undefined, opts?: { count?: number }) => {
-      if (typeof amount !== 'number' || !Number.isFinite(amount) || amount === 0) return;
+    const pushIfNumber = (
+      label: string,
+      amount: number | null | undefined,
+      opts?: { count?: number },
+    ) => {
+      if (
+        typeof amount !== 'number' ||
+        !Number.isFinite(amount) ||
+        amount === 0
+      )
+        return;
       items.push({ label, amount, count: opts?.count });
     };
 
@@ -754,14 +1103,31 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     pushIfNumber('OB-tillägg kontant (350)', art350?.sekTotalComputed);
     pushIfNumber('Däckmanstillägg (0641)', art0641?.sekTotal);
     pushIfNumber('Rederitillägg (0644)', art0644?.sekTotal);
-    pushIfNumber('Maskinskötseltillägg (2101)', overview.art2101?.sekTotal, { count: overview.art2101?.rowsCount });
+    pushIfNumber('Maskinskötseltillägg (2101)', overview.art2101?.sekTotal, {
+      count: overview.art2101?.rowsCount,
+    });
+    pushIfNumber('Övriga utlägg (534)', art534?.sekTotal, {
+      count: art534?.rowsCount,
+    });
     pushIfNumber('Semestertillägg (70001)', art70001?.sekTotalComputed);
-    pushIfNumber('Semesterersättning direkt rörliga (K7022)', artK7022?.sekTotal);
+    pushIfNumber(
+      'Semesterersättning direkt rörliga (K7022)',
+      artK7022?.sekTotal,
+    );
 
     // Money conversions / deductions
-    pushIfNumber('Komp → pengar (320)', (art320?.sekTotalFromRow ?? art320?.sekTotalComputed) ?? null);
-    pushIfNumber('VAB (81001)', (art81001?.sekTotalFromRow ?? art81001?.sekTotalComputed) ?? null);
-    pushIfNumber('Sjukdom karens (80001)', (art80001?.sekTotalFromRow ?? art80001?.sekTotalComputed) ?? null);
+    pushIfNumber(
+      'Komp → pengar (320)',
+      art320?.sekTotalFromRow ?? art320?.sekTotalComputed ?? null,
+    );
+    pushIfNumber(
+      'VAB (81001)',
+      art81001?.sekTotalFromRow ?? art81001?.sekTotalComputed ?? null,
+    );
+    pushIfNumber(
+      'Sjukdom karens (80001)',
+      art80001?.sekTotalFromRow ?? art80001?.sekTotalComputed ?? null,
+    );
 
     // Aggregates
     pushIfNumber('Friskvård (9190 + K5441)', friskvard?.sekTotal);
@@ -785,6 +1151,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     art301?.sekTotalComputed,
     art302?.sekTotalComputed,
     art4851?.sekTotal,
+    art534?.sekTotal,
+    art534?.rowsCount,
     art350?.sekTotalComputed,
     art70001?.sekTotalComputed,
     artK7022?.sekTotal,
@@ -805,17 +1173,23 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   const vabBreakdownByDayISO = React.useMemo(() => {
     const out: Record<string, { hours?: number; sek?: number }> = {};
 
-    const hoursByDateISO = art81001?.hoursByDateISO ?? overview.art810?.hoursByDateISO;
+    const hoursByDateISO =
+      art81001?.hoursByDateISO ?? overview.art810?.hoursByDateISO;
     if (hoursByDateISO) {
       for (const [iso, hours] of Object.entries(hoursByDateISO)) {
-        if (typeof hours !== 'number' || !Number.isFinite(hours) || hours === 0) continue;
-        out[iso] = { ...(out[iso] ?? {}), hours: (out[iso]?.hours ?? 0) + hours };
+        if (typeof hours !== 'number' || !Number.isFinite(hours) || hours === 0)
+          continue;
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          hours: (out[iso]?.hours ?? 0) + hours,
+        };
       }
     }
 
     if (art81001?.sekByDateISO) {
       for (const [iso, sek] of Object.entries(art81001.sekByDateISO)) {
-        if (typeof sek !== 'number' || !Number.isFinite(sek) || sek === 0) continue;
+        if (typeof sek !== 'number' || !Number.isFinite(sek) || sek === 0)
+          continue;
         out[iso] = { ...(out[iso] ?? {}), sek: (out[iso]?.sek ?? 0) + sek };
       }
     }
@@ -837,14 +1211,19 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
 
     if (hoursByDateISO) {
       for (const [iso, hours] of Object.entries(hoursByDateISO)) {
-        if (typeof hours !== 'number' || !Number.isFinite(hours) || hours === 0) continue;
-        out[iso] = { ...(out[iso] ?? {}), hours: (out[iso]?.hours ?? 0) + hours };
+        if (typeof hours !== 'number' || !Number.isFinite(hours) || hours === 0)
+          continue;
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          hours: (out[iso]?.hours ?? 0) + hours,
+        };
       }
     }
 
     if (sekByDateISO) {
       for (const [iso, sek] of Object.entries(sekByDateISO)) {
-        if (typeof sek !== 'number' || !Number.isFinite(sek) || sek === 0) continue;
+        if (typeof sek !== 'number' || !Number.isFinite(sek) || sek === 0)
+          continue;
         out[iso] = { ...(out[iso] ?? {}), sek: (out[iso]?.sek ?? 0) + sek };
       }
     }
@@ -853,11 +1232,28 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
   }, [overview.art302]);
 
   const overtimeBreakdownByDayISO = React.useMemo(() => {
-    const out: Record<string, { minutes301?: number; minutes311?: number; minutes31101?: number; minutes312?: number; minutes31201?: number }> = {};
+    const out: Record<
+      string,
+      {
+        minutes301?: number;
+        minutes311?: number;
+        minutes31101?: number;
+        minutes312?: number;
+        minutes31201?: number;
+      }
+    > = {};
     if (art301?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art301.minutesByDateISO)) {
-        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
-        out[iso] = { ...(out[iso] ?? {}), minutes301: (out[iso]?.minutes301 ?? 0) + minutes };
+        if (
+          typeof minutes !== 'number' ||
+          !Number.isFinite(minutes) ||
+          minutes <= 0
+        )
+          continue;
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          minutes301: (out[iso]?.minutes301 ?? 0) + minutes,
+        };
       }
     }
 
@@ -866,32 +1262,64 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
     const hasRecalc = new Set<string>();
     if (art31101?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art31101.minutesByDateISO)) {
-        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        if (
+          typeof minutes !== 'number' ||
+          !Number.isFinite(minutes) ||
+          minutes <= 0
+        )
+          continue;
         hasRecalc.add(iso);
-        out[iso] = { ...(out[iso] ?? {}), minutes31101: (out[iso]?.minutes31101 ?? 0) + minutes };
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          minutes31101: (out[iso]?.minutes31101 ?? 0) + minutes,
+        };
       }
     }
     if (art31201?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art31201.minutesByDateISO)) {
-        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
+        if (
+          typeof minutes !== 'number' ||
+          !Number.isFinite(minutes) ||
+          minutes <= 0
+        )
+          continue;
         hasRecalc.add(iso);
-        out[iso] = { ...(out[iso] ?? {}), minutes31201: (out[iso]?.minutes31201 ?? 0) + minutes };
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          minutes31201: (out[iso]?.minutes31201 ?? 0) + minutes,
+        };
       }
     }
 
     // 312 (kval till komp): include even if 31201 exists so we can validate relation.
     if (art312?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art312.minutesByDateISO)) {
-        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
-        out[iso] = { ...(out[iso] ?? {}), minutes312: (out[iso]?.minutes312 ?? 0) + minutes };
+        if (
+          typeof minutes !== 'number' ||
+          !Number.isFinite(minutes) ||
+          minutes <= 0
+        )
+          continue;
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          minutes312: (out[iso]?.minutes312 ?? 0) + minutes,
+        };
       }
     }
 
     if (art311?.minutesByDateISO) {
       for (const [iso, minutes] of Object.entries(art311.minutesByDateISO)) {
         if (hasRecalc.has(iso)) continue;
-        if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) continue;
-        out[iso] = { ...(out[iso] ?? {}), minutes311: (out[iso]?.minutes311 ?? 0) + minutes };
+        if (
+          typeof minutes !== 'number' ||
+          !Number.isFinite(minutes) ||
+          minutes <= 0
+        )
+          continue;
+        out[iso] = {
+          ...(out[iso] ?? {}),
+          minutes311: (out[iso]?.minutes311 ?? 0) + minutes,
+        };
       }
     }
 
@@ -933,6 +1361,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               monthISO={calendarMonthISO}
               overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
               workDaysISO={art315?.datesISO ?? []}
+              workHoursByDayISO={art315?.hoursByDateISO}
               art302DatesISO={art302DatesISO}
               art302BreakdownByDayISO={art302BreakdownByDayISO}
               sicknessDaysISO={sicknessDaysISO}
@@ -953,17 +1382,23 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Översikt Timmar</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">
+            Översikt Timmar
+          </div>
 
           <div className="mt-3 space-y-2 text-sm">
             <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">Ordinarie arbets tid</div>
+              <div className="text-xs font-semibold text-gray-700">
+                Ordinarie arbets tid
+              </div>
 
               <div className="mt-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-gray-600">Arbetstid (315)</div>
                   <div className="tabular-nums font-semibold text-gray-900">
-                    {art315 ? `${formatInt(art315Hours)} h ${formatInt(art315Minutes)} min` : '–'}
+                    {art315
+                      ? `${formatInt(art315Hours)} h ${formatInt(art315Minutes)} min`
+                      : '–'}
                   </div>
                 </div>
 
@@ -972,7 +1407,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-gray-600">Semester (700)</div>
                   <div className="tabular-nums font-semibold text-gray-900">
-                    {art700 ? `${formatInt(art700DaysCount)} d (${formatInt(art700GeneratedHours)} h)` : '–'}
+                    {art700
+                      ? `${formatInt(art700DaysCount)} d (${formatInt(art700GeneratedHours)} h)`
+                      : '–'}
                   </div>
                 </div>
 
@@ -982,7 +1419,7 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                   <div className="text-gray-600">VAB (810/81001)</div>
                   <div className="tabular-nums font-semibold text-gray-900">
                     {overview.art810 || art81001
-                      ? `${formatHours((art81001?.hoursTotal ?? overview.art810?.hoursTotal ?? 0))} h`
+                      ? `${formatHours(art81001?.hoursTotal ?? overview.art810?.hoursTotal ?? 0)} h`
                       : '–'}
                   </div>
                 </div>
@@ -997,11 +1434,15 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                 </div>
               </div>
 
-              <div className="mt-2 text-xs text-gray-500">Varje semesterdag räknas som 5 timmars arbete.</div>
+              <div className="mt-2 text-xs text-gray-500">
+                Varje semesterdag räknas som 5 timmars arbete.
+              </div>
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">Övertid till komp (311)</div>
+              <div className="text-xs font-semibold text-gray-700">
+                Övertid till komp (311)
+              </div>
               {art311 ? (
                 <div className="mt-1 flex items-center justify-between">
                   <div className="text-gray-600">ART 311</div>
@@ -1010,22 +1451,29 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                   </div>
                 </div>
               ) : (
-                <div className="mt-1 text-sm text-gray-600">Hittade inga 311-rader.</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  Hittade inga 311-rader.
+                </div>
               )}
               {art311?.datesISO.length ? (
-                <div className="mt-1 text-xs text-gray-500">Datum markerade: {art311.datesISO.length}</div>
+                <div className="mt-1 text-xs text-gray-500">
+                  Datum markerade: {art311.datesISO.length}
+                </div>
               ) : null}
             </div>
 
             <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">Övertid, omräkning (31101 / 31201)</div>
+              <div className="text-xs font-semibold text-gray-700">
+                Övertid, omräkning (31101 / 31201)
+              </div>
               {art31101 || art31201 ? (
                 <>
                   {art31101 ? (
                     <div className="mt-1 flex items-center justify-between">
                       <div className="text-gray-600">ART 31101</div>
                       <div className="tabular-nums font-semibold text-gray-900">
-                        {formatInt(art31101Hours)} h {formatInt(art31101Minutes)} min
+                        {formatInt(art31101Hours)} h{' '}
+                        {formatInt(art31101Minutes)} min
                       </div>
                     </div>
                   ) : null}
@@ -1033,16 +1481,20 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                     <div className="mt-1 flex items-center justify-between">
                       <div className="text-gray-600">ART 31201</div>
                       <div className="tabular-nums font-semibold text-gray-900">
-                        {formatInt(art31201Hours)} h {formatInt(art31201Minutes)} min
+                        {formatInt(art31201Hours)} h{' '}
+                        {formatInt(art31201Minutes)} min
                       </div>
                     </div>
                   ) : null}
                 </>
               ) : (
-                <div className="mt-1 text-sm text-gray-600">Hittade inga 31101/31201-rader.</div>
+                <div className="mt-1 text-sm text-gray-600">
+                  Hittade inga 31101/31201-rader.
+                </div>
               )}
               <div className="mt-1 text-xs text-gray-500">
-                31101 = okvalificerad omräkning (1,4×). 31201 = helgdag/helg omräkning (2×).
+                31101 = okvalificerad omräkning (1,4×). 31201 = helgdag/helg
+                omräkning (2×).
               </div>
             </div>
 
@@ -1056,7 +1508,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
         </div>
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Översikt pengar</div>
+          <div className="text-xs uppercase tracking-wide text-gray-500">
+            Översikt pengar
+          </div>
 
           {moneyOverview.items.length ? (
             <div className="mt-3 space-y-3 text-sm">
@@ -1065,12 +1519,20 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                 <div className="mt-2 space-y-1">
                   {moneyOverview.plus.length ? (
                     moneyOverview.plus.map((it) => (
-                      <div key={it.label} className="flex items-center justify-between gap-3">
+                      <div
+                        key={it.label}
+                        className="flex items-center justify-between gap-3"
+                      >
                         <div className="text-gray-600">
                           {it.label}
-                          {typeof it.count === 'number' && Number.isFinite(it.count) ? ` (${it.count} st)` : ''}
+                          {typeof it.count === 'number' &&
+                          Number.isFinite(it.count)
+                            ? ` (${it.count} st)`
+                            : ''}
                         </div>
-                        <div className="tabular-nums font-semibold text-gray-900">{formatSek(it.amount)}</div>
+                        <div className="tabular-nums font-semibold text-gray-900">
+                          {formatSek(it.amount)}
+                        </div>
                       </div>
                     ))
                   ) : (
@@ -1080,7 +1542,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
 
                 <div className="mt-2 border-t border-gray-100 pt-2">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-gray-700">Summa plus</div>
+                    <div className="text-xs font-semibold text-gray-700">
+                      Summa plus
+                    </div>
                     <div className="tabular-nums text-sm font-semibold text-gray-900">
                       {formatSek(moneyOverview.plusTotal)}
                     </div>
@@ -1093,12 +1557,20 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
                 <div className="mt-2 space-y-1">
                   {moneyOverview.minus.length ? (
                     moneyOverview.minus.map((it) => (
-                      <div key={it.label} className="flex items-center justify-between gap-3">
+                      <div
+                        key={it.label}
+                        className="flex items-center justify-between gap-3"
+                      >
                         <div className="text-gray-600">
                           {it.label}
-                          {typeof it.count === 'number' && Number.isFinite(it.count) ? ` (${it.count} st)` : ''}
+                          {typeof it.count === 'number' &&
+                          Number.isFinite(it.count)
+                            ? ` (${it.count} st)`
+                            : ''}
                         </div>
-                        <div className="tabular-nums font-semibold text-gray-900">{formatSek(it.amount)}</div>
+                        <div className="tabular-nums font-semibold text-gray-900">
+                          {formatSek(it.amount)}
+                        </div>
                       </div>
                     ))
                   ) : (
@@ -1108,7 +1580,9 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
 
                 <div className="mt-2 border-t border-gray-100 pt-2">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-gray-700">Summa minus</div>
+                    <div className="text-xs font-semibold text-gray-700">
+                      Summa minus
+                    </div>
                     <div className="tabular-nums text-sm font-semibold text-gray-900">
                       {formatSek(moneyOverview.minusTotal)}
                     </div>
@@ -1117,19 +1591,28 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
               </div>
 
               <div className="rounded-lg border border-gray-200 bg-white p-3">
-                <div className="text-xs font-semibold text-gray-700">Plus + minus = summa</div>
+                <div className="text-xs font-semibold text-gray-700">
+                  Plus + minus = summa
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <div className="tabular-nums text-sm font-semibold text-gray-900">
-                    {formatSekNumber(moneyOverview.plusTotal)} - {formatSekNumber(Math.abs(moneyOverview.minusTotal))}
+                    {formatSekNumber(moneyOverview.plusTotal)} -{' '}
+                    {formatSekNumber(Math.abs(moneyOverview.minusTotal))}
                   </div>
-                  <div className="tabular-nums text-sm font-semibold text-gray-900">= {formatSekNumber(moneyOverview.sum)}</div>
+                  <div className="tabular-nums text-sm font-semibold text-gray-900">
+                    = {formatSekNumber(moneyOverview.sum)}
+                  </div>
                 </div>
               </div>
 
               <div className="rounded-lg border border-gray-200 bg-white p-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs font-semibold text-gray-700">Summa</div>
-                  <div className="tabular-nums text-sm font-semibold text-gray-900">{formatSek(moneyOverview.sum)}</div>
+                  <div className="text-xs font-semibold text-gray-700">
+                    Summa
+                  </div>
+                  <div className="tabular-nums text-sm font-semibold text-gray-900">
+                    {formatSek(moneyOverview.sum)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1141,7 +1624,10 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
 
           {typeof lines?.length === 'number' ? (
             <div className="mt-3 text-xs text-gray-600">
-              Text-rader (debug): <span className="tabular-nums font-semibold text-gray-900">{lines.length}</span>
+              Text-rader (debug):{' '}
+              <span className="tabular-nums font-semibold text-gray-900">
+                {lines.length}
+              </span>
             </div>
           ) : null}
         </div>
@@ -1151,7 +1637,10 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-900">Grupper</h3>
           <div className="text-xs text-gray-600">
-            Sorterat: <span className="font-semibold text-gray-900">flest rader först</span>
+            Sorterat:{' '}
+            <span className="font-semibold text-gray-900">
+              flest rader först
+            </span>
           </div>
         </div>
 
@@ -1159,17 +1648,26 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
           <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white">
             <div className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2">
               <div className="text-xs font-semibold text-gray-600">Art</div>
-              <div className="text-xs font-semibold text-gray-600">Rubrik (från första raden)</div>
-              <div className="text-right text-xs font-semibold text-gray-600">Rader</div>
+              <div className="text-xs font-semibold text-gray-600">
+                Rubrik (från första raden)
+              </div>
+              <div className="text-right text-xs font-semibold text-gray-600">
+                Rader
+              </div>
             </div>
             <div className="max-h-[260px] overflow-auto">
               {byArtNotInOverview.map((r) => (
-                <div key={r.art} className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-100 px-4 py-3">
+                <div
+                  key={r.art}
+                  className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-100 px-4 py-3"
+                >
                   <div className="font-mono text-sm text-gray-800">{r.art}</div>
                   <div className="text-sm text-gray-900">
                     <div className="font-medium">{r.description}</div>
                   </div>
-                  <div className="tabular-nums text-right text-sm font-semibold text-gray-900">{r.rowsCount}</div>
+                  <div className="tabular-nums text-right text-sm font-semibold text-gray-900">
+                    {r.rowsCount}
+                  </div>
                 </div>
               ))}
             </div>
@@ -1179,11 +1677,19 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
         {sortedNotInOverview.length ? (
           <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
             {sortedNotInOverview.map((g) => (
-              <div key={g.art} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+              <div
+                key={g.art}
+                className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+              >
                 <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2">
-                  <div className="font-mono text-sm font-semibold text-gray-900">{g.art}</div>
+                  <div className="font-mono text-sm font-semibold text-gray-900">
+                    {g.art}
+                  </div>
                   <div className="text-xs text-gray-600">
-                    <span className="tabular-nums font-semibold text-gray-900">{g.rows.length}</span> rader
+                    <span className="tabular-nums font-semibold text-gray-900">
+                      {g.rows.length}
+                    </span>{' '}
+                    rader
                   </div>
                 </div>
 
@@ -1197,7 +1703,8 @@ export function PayslipArtGroupsPanel({ fileName, artGroups, lines }: PayslipArt
           </div>
         ) : (
           <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
-            Inga övriga ART-grupper att visa (allt som hittades visas redan i Översikt).
+            Inga övriga ART-grupper att visa (allt som hittades visas redan i
+            Översikt).
           </div>
         )}
 

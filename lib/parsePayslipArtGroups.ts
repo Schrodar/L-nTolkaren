@@ -21,11 +21,14 @@ export type ParsePayslipArtGroupsResult = {
   pages?: PageOut[];
 };
 
-let pdfjsPromise: Promise<typeof import('pdfjs-dist/build/pdf.mjs')> | null = null;
+let pdfjsPromise: Promise<typeof import('pdfjs-dist/build/pdf.mjs')> | null =
+  null;
 
 async function loadPdfJs() {
   if (typeof window === 'undefined') {
-    throw new Error('parsePayslipArtGroups must run in the browser (client component).');
+    throw new Error(
+      'parsePayslipArtGroups must run in the browser (client component).',
+    );
   }
 
   if (!pdfjsPromise) {
@@ -33,7 +36,7 @@ async function loadPdfJs() {
       // Next.js: använd lokal worker bundlad via URL(), ingen CDN.
       pdfjs.GlobalWorkerOptions.workerSrc = new URL(
         'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url
+        import.meta.url,
       ).toString();
       return pdfjs;
     });
@@ -42,7 +45,10 @@ async function loadPdfJs() {
 }
 
 // Grupp av text-items -> rader baserat på Y
-export function itemsToLines(items: TextItem[], yTolerance: number = 2): Line[] {
+export function itemsToLines(
+  items: TextItem[],
+  yTolerance: number = 2,
+): Line[] {
   const points = (items || [])
     .filter((it) => it?.str && it.str.trim())
     .map((it) => {
@@ -96,6 +102,7 @@ export function extractArtLines(lines: Line[]) {
   const out: Array<{ raw: string }> = [];
   const artLineRe = /^(\d{2,5}|K\d{3,5})\s/;
   const dateRangeLineRe = /^\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}\b/;
+  const artWithDateRangeContinuations = new Set(['9190', '534']);
 
   let currentArt: string | null = null;
 
@@ -109,9 +116,13 @@ export function extractArtLines(lines: Line[]) {
       continue;
     }
 
-    // Some specs split ART 9190 across multiple lines, where the amount row starts with the date range.
-    // We only attach date-range continuations to 9190 to avoid over-grouping unrelated lines.
-    if (currentArt === '9190' && dateRangeLineRe.test(text)) {
+    // Some specs split certain ART rows across multiple lines, where the amount row starts with the date range.
+    // We only attach date-range continuations for known arts to avoid over-grouping unrelated lines.
+    if (
+      currentArt &&
+      artWithDateRangeContinuations.has(currentArt) &&
+      dateRangeLineRe.test(text)
+    ) {
       out.push({ raw: `${currentArt} ${text}` });
       continue;
     }
@@ -138,7 +149,7 @@ export async function parsePayslipArtGroups(
     yTolerance?: number;
     includePages?: boolean;
     maxPages?: number;
-  }
+  },
 ): Promise<ParsePayslipArtGroupsResult> {
   const pdfjs = await loadPdfJs();
 
@@ -161,7 +172,10 @@ export async function parsePayslipArtGroups(
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
 
-    const lines = itemsToLines(content.items as unknown as TextItem[], yTolerance);
+    const lines = itemsToLines(
+      content.items as unknown as TextItem[],
+      yTolerance,
+    );
     const extracted = extractArtLines(lines);
     const artGroups = groupByArt(extracted);
 
