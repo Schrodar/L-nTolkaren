@@ -724,37 +724,28 @@ function MonthCalendar({
                     <div className="mt-1 text-lg font-semibold tabular-nums text-gray-900">
                       {minutesToLabel(selectedInfo.total)}
                     </div>
-                    <div className="mt-2 text-xs text-gray-700">
-                      <div>
-                        ART 301 (utbetald):{' '}
-                        {selectedInfo.minutes301
-                          ? minutesToLabel(selectedInfo.minutes301)
-                          : '–'}
-                      </div>
-                      <div>
-                        ART 311 (till komp):{' '}
-                        {selectedInfo.minutes311
-                          ? minutesToLabel(selectedInfo.minutes311)
-                          : '–'}
-                      </div>
-                      <div>
-                        ART 31101 (till komp, 1,4x):{' '}
-                        {selectedInfo.minutes31101
-                          ? minutesToLabel(selectedInfo.minutes31101)
-                          : '–'}
-                      </div>
-                      <div>
-                        ART 312 (kval till komp):{' '}
-                        {selectedInfo.minutes312
-                          ? minutesToLabel(selectedInfo.minutes312)
-                          : '–'}
-                      </div>
-                      <div>
-                        ART 31201 (kval omräkning, 2x):{' '}
-                        {selectedInfo.minutes31201
-                          ? minutesToLabel(selectedInfo.minutes31201)
-                          : '–'}
-                      </div>
+                    <div className="mt-2 space-y-0.5 text-xs">
+                      {(
+                        [
+                          { art: '301', label: 'utbetald', minutes: selectedInfo.minutes301 },
+                          { art: '311', label: 'till komp', minutes: selectedInfo.minutes311 },
+                          { art: '31101', label: 'till komp, 1,4x', minutes: selectedInfo.minutes31101 },
+                          { art: '312', label: 'kval till komp', minutes: selectedInfo.minutes312 },
+                          { art: '31201', label: 'kval omräkning, 2x', minutes: selectedInfo.minutes31201 },
+                        ] as { art: string; label: string; minutes: number }[]
+                      ).map(({ art, label, minutes }) =>
+                        minutes > 0 ? (
+                          <div key={art} className="flex items-baseline justify-between gap-2 font-semibold text-gray-900">
+                            <span>ART {art} ({label})</span>
+                            <span className="tabular-nums text-red-700">{minutesToLabel(minutes)}</span>
+                          </div>
+                        ) : (
+                          <div key={art} className="flex items-baseline justify-between gap-2 text-gray-400">
+                            <span>ART {art} ({label})</span>
+                            <span>–</span>
+                          </div>
+                        ),
+                      )}
 
                       {(() => {
                         const note = qualRelationNote(
@@ -871,8 +862,8 @@ function MonthCalendar({
                   <Image
                     src="/ticktack.png"
                     alt="Övertid"
-                    width={96}
-                    height={96}
+                    width={56}
+                    height={56}
                   />
                 </div>
               </div>

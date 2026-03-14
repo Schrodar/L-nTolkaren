@@ -33,11 +33,9 @@ async function loadPdfJs() {
 
   if (!pdfjsPromise) {
     pdfjsPromise = import('pdfjs-dist/build/pdf.mjs').then((pdfjs) => {
-      // Next.js: använd lokal worker bundlad via URL(), ingen CDN.
-      pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url,
-      ).toString();
+      // Använd statisk worker från public/ för korrekt MIME-typ i alla webbläsare
+      // (Chrome kräver text/javascript – new URL(..., import.meta.url) fungerar inte alltid).
+      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
       return pdfjs;
     });
   }
