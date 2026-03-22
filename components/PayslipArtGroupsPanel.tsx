@@ -1114,6 +1114,7 @@ export function PayslipArtGroupsPanel({
     pushIfNumber(
       'VAB (81001)',
       art81001?.sekTotalFromRow ?? art81001?.sekTotalComputed ?? null,
+      { count: art81001?.rowsCount },
     );
     pushIfNumber(
       'Sjukdom karens (80001)',

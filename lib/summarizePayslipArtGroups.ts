@@ -510,7 +510,32 @@ function parse31201HoursFromRawRow(raw: string): number | null {
 
 function parse810HoursFromRawRow(raw: string): number | null {
   // 810/81001: första siffran efter datumintervallet är timmar.
-  return parse301HoursFromRawRow(raw);
+  // OBS: kan vara summerade timmar över flera dagar (t.ex. 29,83), så vi kan
+  // inte återanvända 0..24h-regeln från vissa övertidsrader.
+  const s = normalizeSpaces(raw);
+  const dateRe = /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/;
+  const dm = s.match(dateRe);
+  if (!dm || dm.index == null) return null;
+
+  const after = s.slice(dm.index + dm[0].length).trim();
+  if (!after) return null;
+
+  const tokens = after.match(/[-+]?\d+(?:\s\d{3})*(?:,\d{1,2})?/g) || [];
+  for (const tok of tokens) {
+    const t = tok.trim();
+    const hasExplicitSign = /^[+-]/.test(t);
+    const n = parseSwedishNumber(t);
+    if (typeof n !== 'number') continue;
+
+    let hours = n;
+    if (!hasExplicitSign && hours < 0) hours = Math.abs(hours);
+
+    // Rimlighet: VAB kan summeras över flera dagar.
+    if (hours < 0 || hours > 500) continue;
+    return hours;
+  }
+
+  return null;
 }
 
 function parse81001FromRawRow(raw: string): {
@@ -531,29 +556,42 @@ function parse81001FromRawRow(raw: string): {
   const after = s.slice(dm.index + dm[0].length).trim();
   if (!after) return null;
 
+  // Timmar: första siffran efter datumintervallet.
   const hours = parse810HoursFromRawRow(raw);
   if (typeof hours !== 'number' || !Number.isFinite(hours)) return null;
 
-  // Belopp: leta efter "Tim" och plocka siffror efter, men ignorera procent (t.ex. 41,67%).
-  const timIdx = after.search(/\bTim\b/i);
-  if (timIdx < 0) return { dateFrom, dateTo, hours };
-
-  const afterTim = after.slice(timIdx + 3);
-  const afterTimNoPercent = afterTim.replace(
+  // Belopp: procentsatsen beskriver bara hur stor del av dagen som avser VAB
+  // och ska ignoreras i beräkningen. I PDF-text kan "Tim" ibland sitta ihop med
+  // talet (t.ex. "29,83Tim"), så vi letar inte efter ordgränser.
+  const afterNoPercent = after.replace(
     /\b\d+(?:\s\d{3})*,\d{1,2}\s*%/g,
     ' ',
   );
 
-  const tokens =
-    afterTimNoPercent.match(/[-+]?\d+(?:\s\d{3})*(?:,\d{1,2})?/g) || [];
-  const nums: number[] = [];
-  for (const tok of tokens) {
-    const n = parseSwedishNumber(tok.trim());
-    if (typeof n === 'number' && Number.isFinite(n)) nums.push(n);
+  // Plocka alla svenska decimaltal efter datumintervallet.
+  // För 81001 är formen typiskt: <timmar> Tim <procent%> <timbelopp?> <total>
+  const nums = extractAllSwedishNumbers(afterNoPercent);
+  if (!nums.length) return { dateFrom, dateTo, hours };
+
+  // Ta bort första talet som matchar timmarna (tolerans för PDF-brus).
+  const hoursEps = 0.005;
+  const remaining: number[] = [];
+  let removedHours = false;
+  for (const n of nums) {
+    if (!removedHours && Math.abs(n - hours) <= hoursEps) {
+      removedHours = true;
+      continue;
+    }
+    remaining.push(n);
   }
 
-  const sekPerHour = nums.length ? nums[0] : undefined;
-  const sekTotalFromRow = nums.length >= 2 ? nums[nums.length - 1] : undefined;
+  if (!remaining.length) return { dateFrom, dateTo, hours };
+
+  // Om bara ett tal återstår efter timmarna: tolka det som totalsumma.
+  // Om minst två tal återstår: första = timbelopp, sista = totalsumma.
+  const sekPerHour = remaining.length >= 2 ? remaining[0] : undefined;
+  const sekTotalFromRow =
+    remaining.length >= 2 ? remaining[remaining.length - 1] : remaining[0];
 
   return { dateFrom, dateTo, hours, sekPerHour, sekTotalFromRow };
 }
@@ -740,14 +778,18 @@ function parse302FromRawRow(raw: string): {
 
 export function parseArtRow(raw: string): ParsedArtRow | null {
   const s = normalizeSpaces(raw);
-  const artMatch = s.match(/^(\d{2,5}|K\d{3,5})\s+/);
+  const artMatch = s.match(/^(\d{2,5}|K\d{3,5})(?=\s|[A-Za-zÅÄÖåäö])/);
   if (!artMatch) return null;
 
   const art = artMatch[1];
-  const desc = descriptionFromRawRow(art, s);
+  const rest = s.slice(art.length);
+  const normalized = /^\s/.test(rest) ? s : `${art} ${rest.trimStart()}`;
+  const desc = descriptionFromRawRow(art, normalized);
 
-  const dateMatch = s.match(/(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/);
-  const numbers = extractAllSwedishNumbers(s);
+  const dateMatch = normalized.match(
+    /(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/,
+  );
+  const numbers = extractAllSwedishNumbers(normalized);
 
   return {
     art,
@@ -755,7 +797,7 @@ export function parseArtRow(raw: string): ParsedArtRow | null {
     dateFrom: dateMatch?.[1],
     dateTo: dateMatch?.[2],
     numbers,
-    raw: s,
+    raw: normalized,
   };
 }
 
@@ -1314,7 +1356,8 @@ export function summarizePayslipArtGroups(
       }
 
       const computed =
-        rate != null ? Math.round(parsed.hours * rate * 100) / 100 : 0;
+        // Keep full precision while summing; round once at the end.
+        rate != null ? parsed.hours * rate : 0;
       sekTotalComputed += computed;
 
       const totalForRow =

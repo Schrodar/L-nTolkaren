@@ -98,9 +98,12 @@ export function itemsToLines(
 
 export function extractArtLines(lines: Line[]) {
   const out: Array<{ raw: string }> = [];
-  const artLineRe = /^(\d{2,5}|K\d{3,5})\s/;
+  // Some PDFs glue the art code to the description (e.g. "81001Vård...").
+  // Match art code when it is followed by whitespace OR a letter, but not when
+  // followed by '-' (to avoid matching date lines like "2026-02-20").
+  const artLineRe = /^(\d{2,5}|K\d{3,5})(?=\s|[A-Za-zÅÄÖåäö])/;
   const dateRangeLineRe = /^\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}\b/;
-  const artWithDateRangeContinuations = new Set(['9190', '534']);
+  const artWithDateRangeContinuations = new Set(['9190', '534', '81001']);
 
   let currentArt: string | null = null;
 
@@ -110,7 +113,11 @@ export function extractArtLines(lines: Line[]) {
     const m = text.match(artLineRe);
     if (m?.[1]) {
       currentArt = m[1];
-      out.push({ raw: text });
+      const rest = text.slice(currentArt.length);
+      const normalized = /^\s/.test(rest)
+        ? text
+        : `${currentArt} ${rest.trimStart()}`;
+      out.push({ raw: normalized });
       continue;
     }
 
@@ -133,7 +140,8 @@ export function groupByArt(lines: { raw: string }[]): ArtGroup[] {
   const map: Record<string, ArtGroup> = {};
 
   for (const l of lines) {
-    const art = l.raw.split(/\s+/)[0];
+    const m = l.raw.match(/^(\d{2,5}|K\d{3,5})/);
+    const art = m?.[1] ?? l.raw.split(/\s+/)[0];
     if (!map[art]) map[art] = { art, rows: [] };
     map[art].rows.push(l.raw);
   }
