@@ -174,6 +174,7 @@ export async function POST(request: NextRequest) {
       blockCount: sheet.blocks.length,
       modeCount: { is: isCount, isfri: isfriCount },
       exceptionCount,
+      hasIsVariant: sheet.hasIsVariant,
       parseErrors: sheet.parseErrors,
     });
   }

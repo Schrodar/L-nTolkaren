@@ -129,6 +129,13 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     return () => { canceled = true; };
   }, [selectedBoat]);
 
+  // Återställ till isfri automatiskt om AO-filen saknar is-variant (sommarsäsong)
+  React.useEffect(() => {
+    if (aoSheet && !aoSheet.hasIsVariant) {
+      setSelectedMode('isfri');
+    }
+  }, [aoSheet]);
+
   const showToast = React.useCallback((message: string) => {
     setToastMessage(message);
     window.setTimeout(() => {
@@ -278,17 +285,19 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             )}
           </div>
 
-          <label className="block text-sm text-[#F5F7FF]/90">
-            Isläge
-            <select
-              value={selectedMode}
-              onChange={(e) => setSelectedMode(e.target.value as AoMode)}
-              className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF] sm:max-w-xs"
-            >
-              <option value="isfri">Isfri</option>
-              <option value="is">Is</option>
-            </select>
-          </label>
+          {aoSheet?.hasIsVariant && (
+            <label className="block text-sm text-[#F5F7FF]/90">
+              Isläge
+              <select
+                value={selectedMode}
+                onChange={(e) => setSelectedMode(e.target.value as AoMode)}
+                className="mt-1 w-full rounded-xl border border-white/15 bg-[#0B1B3A] px-3 py-2 text-sm text-[#F5F7FF] sm:max-w-xs"
+              >
+                <option value="isfri">Isfri</option>
+                <option value="is">Is</option>
+              </select>
+            </label>
+          )}
         </div>
 
         {/* Månadsstyrning */}

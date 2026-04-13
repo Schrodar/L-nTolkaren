@@ -4,32 +4,25 @@
  * Läser Excel-arbetsböcker (AO-scheman) och extraherar strukturerad data
  * enligt ParsedAoSheet-formatet.
  *
- * Varje blad tolkas separat och returneras som ett ParsedAoSheet-objekt.
- * Parsad data sparas sedan som JSON i storage/ao/ (via lib/ao/storage.ts).
- *
- * Faktisk Excel-kolumnstruktur (baserat på riktiga AO-filer):
+ * Faktisk Excel-kolumnstruktur:
  *   Col A  = tom (eller periodrubriker)
  *   Col B  = Dag (mån / tis / ... / 23.12 / etc.)
- *   Col C  = Klockslag START (Excel-decimaltal, t.ex. 0.354 = 08:30)
- *   Col D  = "-" (visuell separator i kalkylbladet)
- *   Col E  = Klockslag SLUT (Excel-decimaltal)
- *   Col F  = Tim – AO-bruttotid (duration, t.ex. 0.611 = 14:40)
+ *   Col C  = Klockslag START
+ *   Col D  = "-" separator
+ *   Col E  = Klockslag SLUT
+ *   Col F  = Tim – AO-bruttotid
  *   Col G  = AO-rast B start
  *   Col H  = "-" separator
  *   Col I  = AO-rast B slut
- *   Col J  = Annan rast 1 start (gul)
+ *   Col J  = Annan rast 1 start
  *   Col K  = "-" separator
- *   Col L  = Annan rast 1 slut (gul)
+ *   Col L  = Annan rast 1 slut
  *   Col M  = Annan rast 2 start
  *   Col N  = "-" separator
  *   Col O  = Annan rast 2 slut
  *   Col P  = Annan rast mat start
  *   Col Q  = "-" separator
  *   Col R  = Annan rast mat slut
- *   Col S+ = AO-netto, Tid enl., Per.1, Per.2, Totalt …
- *
- * VIKTIGT: Dag-etiketten söks i HELA raden (inte bara i row[0]) eftersom
- * kolumnen inte alltid är fast.  Klockslag-cellen parses som range-sträng.
  */
 
 import * as XLSX from "xlsx";
@@ -37,17 +30,16 @@ import type {
   AoBlock,
   AoExceptionRow,
   AoMode,
+  AoPeriod,
   AoWorkRow,
   ParsedAoSheet,
   WeekdayKey,
 } from "@/lib/ao/types";
 
-// Re-exportera typer så att de kan importeras från denna modul
 export type { AoBlock, AoExceptionRow, AoMode, AoWorkRow, ParsedAoSheet } from "@/lib/ao/types";
 
 // ── Hjälpkonstanter ─────────────────────────────────────────────────────────
 
-/** Svenska veckodagsetiketter → normaliserade engelska nycklar. */
 const WEEKDAY_MAP: Record<string, WeekdayKey> = {
   mån: "mon",
   man: "mon",
@@ -61,34 +53,27 @@ const WEEKDAY_MAP: Record<string, WeekdayKey> = {
   son: "sun",
 };
 
-/** Regex för AO-datumintervall i en blockrubrik. */
+/**
+ * Regex för ETT datumintervall: "2026-04-02 t.o.m. 2026-05-07"
+ * Används både för att detektera blockrubriker och extrahera perioder.
+ */
 const PERIOD_RE =
-  /(\d{4}-\d{2}-\d{2})\s+t\.?o\.?m\.?\s+(\d{4}-\d{2}-\d{2})/i;
+  /(\d{4}-\d{2}-\d{2})\s+t\.?o\.?m\.?\s+(\d{4}-\d{2}-\d{2})/gi;
 
 /**
  * Regex för undantagsetikett: "15.12", "<24.12", "1.1" osv.
- * Tillåter ett valfritt inledande "<" (skiftpassnotation).
  */
-const DATE_LABEL_RE = /^<?(\d{1,2})\.(\d{1,2})/;
+const DATE_LABEL_RE = /^<?(\\d{1,2})\.(\\d{1,2})/;
 
 // ── Grundläggande cell-hjälpfunktioner ─────────────────────────────────────
 
-/** Normaliserar en cell till sträng, trimmar whitespace. */
 function cellStr(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "number") return String(value);
   return String(value).trim();
 }
 
-/**
- * Parsar ett enskilt tidsvärde (HH:MM) från en cell.
- * Hanterar:
- *   - Sträng "HH:MM" eller "H:MM"
- *   - Excels decimaltal för tider (0.0–1.0 = 00:00–24:00)
- * Returnerar null om värdet inte är en giltig tid.
- */
 function parseTime(value: unknown): string | null {
-  // Decimaltal från Excel (t.ex. 0.3125 = 07:30)
   if (typeof value === "number" && value >= 0 && value < 1) {
     const totalMinutes = Math.round(value * 24 * 60);
     const h = Math.floor(totalMinutes / 60);
@@ -111,18 +96,10 @@ function parseTime(value: unknown): string | null {
   return null;
 }
 
-/**
- * Parsar en kombinerad "range"-cell, t.ex. "07:20 - 20:20".
- * Returnerar { start, end } eller null.
- * Används för Klockslag-kolumnen och eventuella rastceller.
- */
-function parseTimeRange(
-  value: unknown
-): { start: string; end: string } | null {
+function parseTimeRange(value: unknown): { start: string; end: string } | null {
   const s = cellStr(value);
   if (!s || s === "-") return null;
 
-  // Mönster: "07:20 - 20:20" (med valfria mellanslag runt bindestreck)
   const m = s.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
   if (!m) return null;
 
@@ -135,19 +112,12 @@ function parseTimeRange(
 
 // ── Etikett-sökning i rad ───────────────────────────────────────────────────
 
-/**
- * Söker igenom HELA raden efter en veckodagsetikett (mån, tis, …, sön).
- * Hanterar prefix/suffix "<" och ">" (skiftpassnotation, t.ex. "fre>", "<lör").
- *
- * @returns { index, label } om hittad, annars null
- */
 function findDayLabelInRow(
   row: (string | number | null)[]
 ): { index: number; label: string } | null {
   for (let i = 0; i < row.length; i++) {
     const raw = cellStr(row[i]);
     if (!raw) continue;
-
     const clean = raw.toLowerCase().replace(/[<>]/g, "").trim();
     if (Object.prototype.hasOwnProperty.call(WEEKDAY_MAP, clean)) {
       return { index: i, label: raw };
@@ -156,20 +126,13 @@ function findDayLabelInRow(
   return null;
 }
 
-/**
- * Söker igenom HELA raden efter en datumetikett för undantag.
- * Matchar: "15.12", "1.1", "<24.12", "30.12 Nyår" osv.
- *
- * @returns { index, label } om hittad, annars null
- */
 function findExceptionLabelInRow(
   row: (string | number | null)[]
 ): { index: number; label: string } | null {
   for (let i = 0; i < row.length; i++) {
     const raw = cellStr(row[i]);
     if (!raw) continue;
-
-    if (DATE_LABEL_RE.test(raw.trim())) {
+    if (/^<?\d{1,2}\.\d{1,2}/.test(raw.trim())) {
       return { index: i, label: raw };
     }
   }
@@ -178,53 +141,19 @@ function findExceptionLabelInRow(
 
 // ── Tidsläsning relativt etikett-positionen ─────────────────────────────────
 
-/**
- * Typ som representerar en "slot" i tids-sekvensen.
- * En slot är antingen ett enskilt tidsvärde, ett range-par (start+end),
- * eller null (tom cell / streck).
- */
 type TimeSlot =
   | { kind: "single"; value: string }
   | { kind: "range"; start: string; end: string }
   | { kind: "empty" };
 
-/** Parsar en cell till en TimeSlot. */
 function cellToSlot(value: unknown): TimeSlot {
-  // Prova range-format först ("07:20 - 20:20")
   const range = parseTimeRange(value);
   if (range) return { kind: "range", start: range.start, end: range.end };
-
-  // Prova enskilt tidsvärde
   const single = parseTime(value);
   if (single) return { kind: "single", value: single };
-
   return { kind: "empty" };
 }
 
-/**
- * Läser tiderna i en AO-rad relativt etikett-positionen.
- *
- * Faktisk kolumnordning i Excel EFTER etiketten (offset från labelIndex):
- *   +1  Klockslag start (Excel-decimaltal eller enstaka "HH:MM"-sträng)
- *   +2  "-" visuell separator i kalkylbladet (alltid en streckcell)
- *   +3  Klockslag slut (workEnd)
- *   +4  Tim – AO-bruttotid (duration)
- *   +5  AO-rast B start
- *   +6  "-" separator
- *   +7  AO-rast B slut
- *   +8  Annan rast 1 start (gul)
- *   +9  "-" separator
- *   +10 Annan rast 1 slut
- *   +11 Annan rast 2 start
- *   +12 "-" separator
- *   +13 Annan rast 2 slut
- *   +14 Annan rast mat start
- *   +15 "-" separator
- *   +16 Annan rast mat slut
- *
- * Notera: "+2 = -" är alltid en streckcell som visuell separator i Excel.
- * Varje tidpar (start/slut) omges av en sådan separator.
- */
 function parseTimesFromRow(
   row: (string | number | null)[],
   labelIndex: number
@@ -243,40 +172,27 @@ function parseTimesFromRow(
 } {
   const get = (offset: number): unknown => row[labelIndex + offset] ?? null;
 
-  // +1: Klockslag start; +2 = "-" separator; +3: Klockslag slut
-  // Prova också range-sträng "HH:MM - HH:MM" i +1 för bakåtkompatibilitet
   let workStart: string | null = null;
   let workEnd: string | null = null;
 
   const klockslagSlot = cellToSlot(get(1));
   if (klockslagSlot.kind === "range") {
-    // Äldre format: kombinerad range-sträng i en cell
     workStart = klockslagSlot.start;
     workEnd = klockslagSlot.end;
   } else {
-    // Normalt format: separata celler med "-" separator emellan
     workStart = parseTime(get(1));
     workEnd = parseTime(get(3));
   }
 
-  // +4: Tim (AO-bruttotid)
   const aoBruttotid = parseTime(get(4));
-
-  // +5: AO-rast B start; +6 = "-"; +7: AO-rast B slut
   const aoRastStart = parseTime(get(5));
-  const aoRastEnd   = parseTime(get(7));
-
-  // +8: Annan rast 1 start; +9 = "-"; +10: Annan rast 1 slut
+  const aoRastEnd = parseTime(get(7));
   const annanRast1Start = parseTime(get(8));
-  const annanRast1End   = parseTime(get(10));
-
-  // +11: Annan rast 2 start; +12 = "-"; +13: Annan rast 2 slut
+  const annanRast1End = parseTime(get(10));
   const annanRast2Start = parseTime(get(11));
-  const annanRast2End   = parseTime(get(13));
-
-  // +14: Annan rast mat start; +15 = "-"; +16: Annan rast mat slut
+  const annanRast2End = parseTime(get(13));
   const annanRastMatStart = parseTime(get(14));
-  const annanRastMatEnd   = parseTime(get(16));
+  const annanRastMatEnd = parseTime(get(16));
 
   return {
     workStart,
@@ -293,50 +209,86 @@ function parseTimesFromRow(
   };
 }
 
-// ── Etikett-hjälpar-wrappers (bakåtkompatibilitet) ──────────────────────────
+// ── Period-hjälpfunktioner ──────────────────────────────────────────────────
 
-/** Normaliserar en veckodagsetikett till WeekdayKey. */
 function normalizeWeekday(label: string): WeekdayKey | undefined {
   const clean = label.toLowerCase().replace(/[<>]/g, "").trim();
   return WEEKDAY_MAP[clean];
 }
 
-/** Identifierar isläget från en blockrubrik. */
-function detectMode(heading: string): AoMode {
+/**
+ * Detekterar isläge från en blockrubrik.
+ * Returnerar { mode, explicit } där explicit=false innebär att
+ * rubriken inte nämner is/isfri — typiskt för sommarsäsong.
+ *
+ * Prioritetsordning:
+ *   1. "isperiod" / "is-period" → mode=is  (slår "isfri" om båda finns)
+ *   2. "isfri" ensamt → mode=isfri
+ *   3. Inget → mode=isfri, explicit=false (sommarsäsong)
+ *
+ * Bakgrund: Nämdö-rubriker kan innehålla BÅDE "Isperiod tabell 2 ... samt isfri
+ * period tabell 13" — det är ett is-block med en dellinje som kör isfri.
+ * Huvudläget för blocket är "is", därför kollar vi isperiod först.
+ */
+function detectMode(heading: string): { mode: AoMode; explicit: boolean } {
   const lower = heading.toLowerCase();
-  if (lower.includes("isfri")) return "isfri";
-  if (lower.includes("is ") || lower.includes("is-") || lower.includes("isperiod"))
-    return "is";
-  if (lower.includes(" is")) return "is";
-  return "isfri";
+
+  // Kolla "isperiod" / "is-period" FÖRE "isfri" — annars missar vi
+  // rubriker som "Isperiod tabell 2 ... samt isfri period tabell 13"
+  if (
+    lower.includes("isperiod") ||
+    lower.includes("is-period")
+  ) {
+    return { mode: "is", explicit: true };
+  }
+
+  // Tydlig isfri-markering (utan föregående isperiod)
+  if (lower.includes("isfri")) return { mode: "isfri", explicit: true };
+
+  // Övriga is-markeringar
+  if (lower.includes("is ") || lower.includes("is-") || / is$/.test(lower)) {
+    return { mode: "is", explicit: true };
+  }
+
+  // Ingen is-text — sommarsäsong, ingen islägesväljare behövs
+  return { mode: "isfri", explicit: false };
 }
 
-/** Kontrollerar om en rad är en blockrubrik med datumintervall. */
+/**
+ * Extraherar ALLA datumintervall från en rad eller sträng.
+ * Hanterar: "2026-04-02 t.o.m. 2026-05-07 samt 2026-09-14 t.o.m. 2026-12-11"
+ * → [{ from: "2026-04-02", to: "2026-05-07" }, { from: "2026-09-14", to: "2026-12-11" }]
+ */
+function extractAllPeriods(text: string): AoPeriod[] {
+  const periods: AoPeriod[] = [];
+  // Återställ lastIndex eftersom vi använder global flag
+  const re = new RegExp(PERIOD_RE.source, "gi");
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    periods.push({ from: match[1], to: match[2] });
+  }
+  return periods;
+}
+
+/**
+ * Kontrollerar om en rad är en blockrubrik (innehåller minst ett datumintervall).
+ */
 function isBlockHeading(row: (string | number | null)[]): boolean {
   const combined = row.map((c) => cellStr(c)).join(" ");
-  return PERIOD_RE.test(combined);
-}
-
-/** Extraherar periodstart/slut från en rad. */
-function extractPeriod(
-  row: (string | number | null)[]
-): { from: string; to: string } | null {
-  const combined = row.map((c) => cellStr(c)).join(" ");
-  const match = combined.match(PERIOD_RE);
-  if (!match) return null;
-  return { from: match[1], to: match[2] };
+  const re = new RegExp(PERIOD_RE.source, "i");
+  return re.test(combined);
 }
 
 /**
  * Löser ett undantags datumetikett till ett ISO-datum.
- * "15.12" -> "2025-12-15", med hänsyn till blockperiodens år.
+ * "15.12" → "2025-12-15", med hänsyn till blockperiodens år.
  */
 function resolveDateLabel(
   label: string,
   periodStart: string,
   periodEnd: string
 ): string | null {
-  const match = label.trim().match(DATE_LABEL_RE);
+  const match = label.trim().match(/^<?\s*(\d{1,2})\.(\d{1,2})/);
   if (!match) return null;
 
   const day = parseInt(match[1], 10);
@@ -360,42 +312,56 @@ interface SheetMeta {
   vesselName: string | null;
   vesselPrefix: string | null;
   registration: string | null;
-  validFrom: string | null;
-  validTo: string | null;
+  validPeriods: AoPeriod[];
   roles: string | null;
   costCenter: string | null;
 }
 
-/** Söker igenom de första raderna för att extrahera fartygsinformation. */
+/**
+ * Söker igenom de första raderna för att extrahera fartygsinformation.
+ *
+ * Hanterar vår/höst-AO där giltighetstiden spänner två rader:
+ *   rad 7: "2026-04-01 t.o.m. 2026-06-14 samt"
+ *   rad 8: "2026-08-19 t.o.m. 2026-12-11"
+ */
 function extractMeta(rows: (string | number | null)[][]): SheetMeta {
   const meta: SheetMeta = {
     vesselName: null,
     vesselPrefix: null,
     registration: null,
-    validFrom: null,
-    validTo: null,
+    validPeriods: [],
     roles: null,
     costCenter: null,
   };
 
   const scanRows = rows.slice(0, 40);
 
-  for (const row of scanRows) {
+  // Bygg en sammanhängande textsträng av de första raderna för
+  // att kunna hitta giltighetstider som löper över radgränser.
+  // Vi joinar raderna med mellanslag och letar efter datumintervall.
+  const fullText = scanRows
+    .map((r) => r.map((c) => cellStr(c)).join(" ").trim())
+    .filter(Boolean)
+    .join(" ");
+
+  for (let rowIdx = 0; rowIdx < scanRows.length; rowIdx++) {
+    const row = scanRows[rowIdx];
     const combined = row.map((c) => cellStr(c)).join(" ").trim();
     if (!combined) continue;
     const lower = combined.toLowerCase();
 
-    // Fartygsnamn: "Fartyg : M/S Skarpö" eller "M/S Nämdö"
+    // Fartygsnamn
     if (!meta.vesselName) {
-      const vesselMatch = combined.match(/\b(M\/S|M\/F|M\/V|MS)\s+([^\s,;()0-9]+(?:\s+[^\s,;()0-9]+)*)/i);
+      const vesselMatch = combined.match(
+        /\b(M\/S|M\/F|M\/V|MS)\s+([^\s,;()0-9]+(?:\s+[^\s,;()0-9]+)*)/i
+      );
       if (vesselMatch) {
         meta.vesselPrefix = vesselMatch[1].toUpperCase();
-        // Trimma bort trailings (t.ex. siffror eller interpunktion)
         meta.vesselName = vesselMatch[2].trim().replace(/\s+\d.*$/, "").trim();
       }
     }
 
-    // Registreringssignal: "Reg.bet: SLZE" eller "Registrering: SMRN"
+    // Registreringssignal
     if (!meta.registration) {
       const regMatch = combined.match(
         /(?:reg\.?b(?:et)?|registrering(?:ssignal)?)[:\s]+([A-ZÅÄÖ]{2,6})/i
@@ -405,28 +371,37 @@ function extractMeta(rows: (string | number | null)[][]): SheetMeta {
       }
     }
 
-    // Giltighetstid: "2025-12-13 t.o.m. 2026-03-31" eller "Gäller : 2025-12-13 t.o.m. 2026-03-31"
-    if (!meta.validFrom) {
-      const validMatch = combined.match(
-        /(\d{4}-\d{2}-\d{2})\s+t\.?o\.?m\.?\s+(\d{4}-\d{2}-\d{2})/
-      );
-      if (validMatch) {
-        meta.validFrom = validMatch[1];
-        meta.validTo = validMatch[2];
-      }
-    }
-
-    // Befattning: "Befattning: Matros, lättmatros, jungman"
+    // Befattning
     if (!meta.roles && lower.includes("befattning")) {
       const roleMatch = combined.match(/befattning\s*[:\s]+(.+)/i);
       if (roleMatch) meta.roles = roleMatch[1].trim();
     }
 
-    // Kostnadsställe: "Kostnadsställe: 5902" eller "Kostandsst: 5902"
+    // Kostnadsställe
     if (!meta.costCenter) {
       const costMatch = combined.match(/kostnadsst(?:\w+)?[:\s]+(\d+)/i);
       if (costMatch) meta.costCenter = costMatch[1];
     }
+
+    // Giltighetstider — hanterar "Gäller"-raden + eventuell fortsättning
+    // Letar i den kombinerade texten för raden och nästa rad
+    if (lower.includes("gäller") || lower.includes("galler")) {
+      // Slå ihop denna rad + nästa för att fånga tvåradigt "samt"-mönster
+      const nextRow = scanRows[rowIdx + 1];
+      const nextCombined = nextRow
+        ? nextRow.map((c) => cellStr(c)).join(" ").trim()
+        : "";
+      const twoLines = `${combined} ${nextCombined}`;
+      const periods = extractAllPeriods(twoLines);
+      if (periods.length > 0) {
+        meta.validPeriods = periods;
+      }
+    }
+  }
+
+  // Fallback: om validPeriods fortfarande är tomt, sök i hela texten
+  if (meta.validPeriods.length === 0) {
+    meta.validPeriods = extractAllPeriods(fullText).slice(0, 4);
   }
 
   return meta;
@@ -437,28 +412,36 @@ function extractMeta(rows: (string | number | null)[][]): SheetMeta {
 /**
  * Parsar ett AO-block (rubrik + veckodagar + undantag).
  *
- * Logik:
- * 1. Sök varje rad med findDayLabelInRow() → veckodag
- * 2. Sök varje rad med findExceptionLabelInRow() → undantag
- * 3. Läs tider relativt etikett-kolumnens position i raden
- * 4. Ignorera header-rader, summerings-rader och anteckningar
- *
- * Debug: sätt DEBUG_AO=1 som env-variabel för verbose server-loggning.
+ * Nytt jämfört med tidigare version:
+ * - extraPeriods: samlar alla datumintervall i rubriken (vår+höst i samma block)
+ * - modeExplicit: sant om rubriken nämner is/isfri
+ * - crewIndex: räknas upp av anroparen för samma period
  */
 function parseBlock(
   headingRow: (string | number | null)[],
   dataRows: (string | number | null)[][],
   sheetName: string,
-  blockIndex: number
+  blockIndex: number,
+  crewIndex: number
 ): AoBlock {
   const debug = process.env.DEBUG_AO === "1";
   const headingStr = headingRow.map((c) => cellStr(c)).join(" ").trim();
-  const period = extractPeriod(headingRow) ?? { from: "", to: "" };
-  const mode = detectMode(headingStr);
+
+  // Extrahera ALLA perioder från rubriken
+  const allPeriods = extractAllPeriods(headingStr);
+  const primaryPeriod = allPeriods[0] ?? { from: "", to: "" };
+  const extraPeriods = allPeriods.slice(1);
+
+  const { mode, explicit: modeExplicit } = detectMode(headingStr);
 
   if (debug) {
     console.log(
-      `[AO] Blad="${sheetName}" Block#${blockIndex} period=${period.from}–${period.to} mode=${mode}`
+      `[AO] Blad="${sheetName}" Block#${blockIndex} crew=${crewIndex}` +
+        ` period=${primaryPeriod.from}–${primaryPeriod.to}` +
+        (extraPeriods.length > 0
+          ? ` + ${extraPeriods.map((p) => `${p.from}–${p.to}`).join(", ")}`
+          : "") +
+        ` mode=${mode} explicit=${modeExplicit}`
     );
   }
 
@@ -466,13 +449,17 @@ function parseBlock(
   const exceptions: AoExceptionRow[] = [];
   const notes: string[] = [];
 
+  // Alla perioder som blocket täcker (primär + extra)
+  const allBlockPeriods = [primaryPeriod, ...extraPeriods];
+
   for (let ri = 0; ri < dataRows.length; ri++) {
     const row = dataRows[ri];
     const combined = row.map((c) => cellStr(c)).join(" ").trim();
     if (!combined) continue;
 
     // Nästa blockrubrik → avsluta
-    if (PERIOD_RE.test(combined)) break;
+    const re = new RegExp(PERIOD_RE.source, "i");
+    if (re.test(combined)) break;
 
     const lower = combined.toLowerCase();
 
@@ -486,54 +473,54 @@ function parseBlock(
       continue;
     }
 
-    // ── Veckodagsrad ───────────────────────────────────────────────────────
+    // Veckodagsrad
     const dayHit = findDayLabelInRow(row);
     if (dayHit) {
       const times = parseTimesFromRow(row, dayHit.index);
-      const entry: AoWorkRow = {
+      weeklySchedule.push({
         normalizedDay: normalizeWeekday(dayHit.label),
         dayLabel: dayHit.label,
         rawCells: row,
         ...times,
-      };
-      weeklySchedule.push(entry);
-
+      });
       if (debug) {
         console.log(
-          `[AO]   rad ${ri}: VECKODAG label="${dayHit.label}" col=${dayHit.index}` +
-            ` work=${times.workStart}–${times.workEnd} brutto=${times.aoBruttotid}`
+          `[AO]   rad ${ri}: VECKODAG label="${dayHit.label}" work=${times.workStart}–${times.workEnd}`
         );
       }
       continue;
     }
 
-    // ── Undantagsrad ───────────────────────────────────────────────────────
+    // Undantagsrad — löser datumet mot ALLA perioders intervall
     const exHit = findExceptionLabelInRow(row);
     if (exHit) {
       const times = parseTimesFromRow(row, exHit.index);
-      const entry: AoExceptionRow = {
+
+      // Prova alla perioder tills vi hittar ett matchande datum
+      let resolvedDate: string | null = null;
+      for (const p of allBlockPeriods) {
+        resolvedDate = resolveDateLabel(exHit.label, p.from, p.to);
+        if (resolvedDate) break;
+      }
+
+      exceptions.push({
         label: exHit.label,
-        resolvedDate: resolveDateLabel(exHit.label, period.from, period.to),
+        resolvedDate,
         rawCells: row,
         ...times,
-      };
-      exceptions.push(entry);
-
+      });
       if (debug) {
         console.log(
-          `[AO]   rad ${ri}: UNDANTAG label="${exHit.label}" col=${exHit.index}` +
-            ` resolved=${entry.resolvedDate} work=${times.workStart}–${times.workEnd}`
+          `[AO]   rad ${ri}: UNDANTAG label="${exHit.label}" resolved=${resolvedDate}`
         );
       }
       continue;
     }
 
-    // ── Ignorerad rad ──────────────────────────────────────────────────────
     if (debug) {
       console.log(`[AO]   rad ${ri}: IGNORERAD – "${combined.slice(0, 60)}"`);
     }
 
-    // Samla eventuella anteckningar (korta rader efter schemat)
     if (combined.length < 160 && weeklySchedule.length > 0) {
       notes.push(combined);
     }
@@ -547,31 +534,26 @@ function parseBlock(
 
   return {
     heading: headingStr,
-    periodStart: period.from,
-    periodEnd: period.to,
+    periodStart: primaryPeriod.from,
+    periodEnd: primaryPeriod.to,
+    extraPeriods,
     mode,
+    modeExplicit,
+    crewIndex,
     weeklySchedule,
     exceptions,
     notes,
   };
 }
 
-// ── Hoved-parsningsfunktion ─────────────────────────────────────────────────
+// ── Huvud-parsningsfunktion ─────────────────────────────────────────────────
 
-/**
- * Parsar ett enskilt Excel-blad till en ParsedAoSheet.
- *
- * @param worksheet - XLSX-bladobjektet
- * @param sheetName - Bladets namn
- * @returns ParsedAoSheet med all tolkad data
- */
 function parseSheet(
   worksheet: XLSX.WorkSheet,
   sheetName: string
 ): ParsedAoSheet {
   const parseErrors: string[] = [];
 
-  // Konvertera till 2D array; header: 1 ger rå cell-arrayer
   const rawRows: (string | number | null)[][] = XLSX.utils.sheet_to_json(
     worksheet,
     { header: 1, defval: null, raw: true }
@@ -586,6 +568,8 @@ function parseSheet(
       registration: null,
       validFrom: null,
       validTo: null,
+      validPeriods: [],
+      hasIsVariant: false,
       roles: null,
       costCenter: null,
       blocks: [],
@@ -593,10 +577,9 @@ function parseSheet(
     };
   }
 
-  // Extrahera metadata
   const meta = extractMeta(rawRows);
 
-  // Hitta alla blockrubriker och deras radindex
+  // Hitta alla blockrubriker
   const blockHeadingIndices: number[] = [];
   for (let i = 0; i < rawRows.length; i++) {
     if (isBlockHeading(rawRows[i])) {
@@ -610,8 +593,10 @@ function parseSheet(
     );
   }
 
-  // Parsa varje block
+  // Parsa varje block och räkna crewIndex per unik primärperiod
   const blocks: AoBlock[] = [];
+  const crewCountByPeriod = new Map<string, number>();
+
   for (let b = 0; b < blockHeadingIndices.length; b++) {
     const headingIdx = blockHeadingIndices[b];
     const nextHeadingIdx =
@@ -622,8 +607,17 @@ function parseSheet(
     const headingRow = rawRows[headingIdx];
     const dataRows = rawRows.slice(headingIdx + 1, nextHeadingIdx);
 
+    // Bestäm crewIndex: räkna hur många block som redan har samma primärperiod
+    const headingStr = headingRow.map((c) => cellStr(c)).join(" ").trim();
+    const allPeriods = extractAllPeriods(headingStr);
+    const primaryKey = allPeriods[0]
+      ? `${allPeriods[0].from}|${allPeriods[0].to}`
+      : `block${b}`;
+    const crewIndex = crewCountByPeriod.get(primaryKey) ?? 0;
+    crewCountByPeriod.set(primaryKey, crewIndex + 1);
+
     try {
-      const block = parseBlock(headingRow, dataRows, sheetName, b);
+      const block = parseBlock(headingRow, dataRows, sheetName, b, crewIndex);
       blocks.push(block);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -633,13 +627,23 @@ function parseSheet(
     }
   }
 
+  // hasIsVariant: finns det minst ett block med explicit is/isfri-markering?
+  const hasIsVariant = blocks.some((b) => b.modeExplicit);
+
+  // validPeriods: från meta (hanterar vår/höst med två intervall)
+  const validPeriods = meta.validPeriods;
+  const validFrom = validPeriods[0]?.from ?? null;
+  const validTo = validPeriods[validPeriods.length - 1]?.to ?? null;
+
   return {
     sheetName,
     vesselName: meta.vesselName,
     vesselPrefix: meta.vesselPrefix,
     registration: meta.registration,
-    validFrom: meta.validFrom,
-    validTo: meta.validTo,
+    validFrom,
+    validTo,
+    validPeriods,
+    hasIsVariant,
     roles: meta.roles,
     costCenter: meta.costCenter,
     blocks,
@@ -649,18 +653,6 @@ function parseSheet(
 
 // ── Publik API ──────────────────────────────────────────────────────────────
 
-/**
- * Parsar en AO-Excel-arbetsbok och returnerar alla tolkade blad.
- *
- * Anropas från server-side (API-rutten) med raw Excel-data som Buffer.
- * Returnerar ett array där varje element representerar ett bladet.
- *
- * Tomma blad och systemblad (t.ex. "Sheet1", "Ark1") inkluderas men
- * markeras med parseErrors om de inte innehåller giltig AO-data.
- *
- * @param buffer - Excel-filens innehåll som Buffer
- * @returns Array av ParsedAoSheet, ett per blad
- */
 export function parseAoWorkbook(buffer: Buffer): ParsedAoSheet[] {
   let workbook: XLSX.WorkBook;
 
@@ -679,7 +671,6 @@ export function parseAoWorkbook(buffer: Buffer): ParsedAoSheet[] {
 
     const parsed = parseSheet(worksheet, sheetName);
 
-    // Inkludera blad som har blocks eller metadata
     const hasContent =
       parsed.blocks.length > 0 ||
       parsed.vesselName !== null ||
@@ -688,11 +679,9 @@ export function parseAoWorkbook(buffer: Buffer): ParsedAoSheet[] {
     if (hasContent) {
       results.push(parsed);
     } else {
-      // Lägg ändå till med felmarkering för transparens
       parsed.parseErrors.push(
         `Bladet "${sheetName}" innehåller ingen tolkbar AO-data och hoppades över.`
       );
-      // Inkludera bara om det finns innehåll som inte är tomt
       const rawRows: unknown[][] = XLSX.utils.sheet_to_json(worksheet, {
         header: 1,
         defval: null,

@@ -1,7 +1,7 @@
-import type { ParsedAoSheet, AoMode, AoWorkRow } from "@/lib/ao/types";
+import type { ParsedAoSheet, AoMode, AoWorkRow, AoBlock } from "@/lib/ao/types";
 
 function toSwedishWeekday(date: Date): AoWorkRow["normalizedDay"] {
-  const day = date.getDay(); // 0=sön, 1=mån ...
+  const day = date.getDay();
   switch (day) {
     case 1: return "mon";
     case 2: return "tue";
@@ -14,20 +14,35 @@ function toSwedishWeekday(date: Date): AoWorkRow["normalizedDay"] {
   }
 }
 
+/**
+ * Kontrollerar om ett ISO-datum faller inom ett blocks perioder.
+ * Kollar primärperioden (periodStart/periodEnd) samt alla extraPeriods.
+ */
+function blockCoversDate(block: AoBlock, isoDate: string): boolean {
+  // Primärperiod
+  if (isoDate >= block.periodStart && isoDate <= block.periodEnd) return true;
+
+  // Extra perioder (t.ex. höst-perioden i en vår/höst-AO)
+  for (const extra of block.extraPeriods ?? []) {
+    if (isoDate >= extra.from && isoDate <= extra.to) return true;
+  }
+
+  return false;
+}
+
 export function getAoForDate(sheet: ParsedAoSheet, mode: AoMode, isoDate: string) {
-  // Find all blocks matching mode + date range, then prefer blocks with actual schedule rows.
+  // Hitta alla block som matchar isläge och täcker datumet
   const candidates = sheet.blocks.filter(
-    (b) =>
-      b.mode === mode &&
-      isoDate >= b.periodStart &&
-      isoDate <= b.periodEnd
+    (b) => b.mode === mode && blockCoversDate(b, isoDate)
   );
 
+  // Föredra block med faktiska schemat-rader
   const block =
     candidates.find((b) => b.weeklySchedule.length > 0) ?? candidates[0];
 
   if (!block) return null;
 
+  // Kolla undantag
   const exception = block.exceptions.find((e) => e.resolvedDate === isoDate);
   if (exception) {
     return {
@@ -43,9 +58,7 @@ export function getAoForDate(sheet: ParsedAoSheet, mode: AoMode, isoDate: string
   return {
     source: "regular" as const,
     block,
-    // Backwards-compat: single `row` = first match or null
     row: rows[0] ?? null,
-    // All crew rows for this weekday (e.g. two crews on Monday)
     rows,
   };
 }
