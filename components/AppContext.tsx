@@ -59,6 +59,7 @@ export type SavedMonth = {
   kompHoursWeekend: number;                      // komp-övertid helg (art312)
   sjukByDate: Record<string, number>;            // datum → sjuktimmar (art80001)
   semesterByDate: Record<string, boolean>;       // datum → semesterdag (art700)
+  manualActiveDates?: string[];                   // aktiva dagar utan AO-pass
   savedAt: string;                               // ISO-timestamp
 };
 

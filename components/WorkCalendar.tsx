@@ -82,6 +82,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const [sjukByDate, setSjukByDate] = React.useState<Record<string, number>>({});
   // semesterdagar (art700)
   const [semesterByDate, setSemesterByDate] = React.useState<Record<string, boolean>>({});
+  // aktiva dagar utan AO-pass (import utan AO)
+  const [manualActiveDates, setManualActiveDates] = React.useState<Set<string>>(new Set());
 
 
 
@@ -182,6 +184,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setKompHoursWeekday(saved.kompHoursWeekday ?? 0);
     setKompHoursWeekend(saved.kompHoursWeekend ?? 0);    setSjukByDate(saved.sjukByDate ?? {});
     setSemesterByDate(saved.semesterByDate ?? {});
+    setManualActiveDates(new Set(saved.manualActiveDates ?? []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthISO]);
 
@@ -192,6 +195,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         Object.keys(overtimeByDate).length === 0 &&
         Object.keys(sjukByDate).length === 0 &&
         Object.keys(semesterByDate).length === 0 &&
+        manualActiveDates.size === 0 &&
         kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
     saveMonth({
       monthISO,
@@ -204,9 +208,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       kompHoursWeekend,
       sjukByDate,
       semesterByDate,
+      manualActiveDates: Array.from(manualActiveDates),
       savedAt: new Date().toISOString(),
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, kompHoursWeekday, kompHoursWeekend, selectedBoat, selectedMode, monthISO, saveMonth]);
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, kompHoursWeekday, kompHoursWeekend, selectedBoat, selectedMode, monthISO, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -280,6 +285,20 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       }
     }
 
+    // Manuellt aktiva dagar (import utan AO) som inte redan finns
+    for (const iso of manualActiveDates) {
+      if (!days.find((d) => d.dateISO === iso)) {
+        days.push({
+          dateISO: iso,
+          aoHours: 0,
+          manualHours: manualHoursByDate[iso] ?? 0,
+          shifts: [],
+          overtimeHours: overtimeByDate[iso] ?? 0,
+          engineAttendantDays: activeAllowances.has('maskinskots') ? 1 : 0,
+        });
+      }
+    }
+
     if (days.length === 0) return null;
 
     return calculateMonthlySalary({
@@ -290,7 +309,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       activeAllowances,
       allowanceAmounts,
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, aoSheet, selectedMode,
+  }, [activeShifts, manualHoursByDate, overtimeByDate, manualActiveDates, aoSheet, selectedMode,
       selectedTariff, groundSalarySelection, activeAllowances, allowanceAmounts]);
 
   function resolveForDate(dateISO: string): ResolvedDaySchedule {
@@ -394,6 +413,26 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     return () => window.removeEventListener('storage', onStorage);
   }, [monthISO, loadPayslip]);
 
+  // Återställ avvikelser och kör AO-täckningskontroll när båt byts
+  React.useEffect(() => {
+    setPayslipDeviations({});
+
+    if (aoSheet && currentPayslip) {
+      const [y, m] = monthISO.split('-');
+      const monthStart = `${monthISO}-01`;
+      const monthEnd = `${y}-${m}-${new Date(Number(y), Number(m), 0).getDate().toString().padStart(2, '0')}`;
+      const covers = aoSheet.validPeriods.some(
+        (p) => p.from <= monthEnd && p.to >= monthStart
+      );
+      if (!covers) {
+        const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+        const rangeLabel = aoSheet.validPeriods.map((p) => `${p.from}–${p.to}`).join(', ');
+        showToast(`Det aktiva AO-schemat gäller ${rangeLabel} och täcker inte ${monthName}.`, 5000);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aoSheet]);
+
   function importPayslip() {
     const ps = loadPayslip(monthISO);
     if (!ps) return;
@@ -411,11 +450,19 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
     setSemesterByDate(newSemester);
 
+    const vabDates = new Set<string>([
+      ...(ov.art810?.datesISO ?? []),
+      ...(ov.art81001?.datesISO ?? []),
+    ]);
+
     // Ordinarie tid (art315)
     if (ov.art315?.hoursByDateISO) {
       const newManual = { ...semManual };
+      const newActiveShifts = new Set(activeShifts);
+      const newManualActive = new Set(manualActiveDates);
       for (const [iso, hours] of Object.entries(ov.art315.hoursByDateISO)) {
         if (semesterDates.has(iso)) continue;
+        if (vabDates.has(iso)) continue;
         if (aoSheet) {
           const resolved = resolveAoDay(aoSheet, selectedMode, iso);
           const aoHours = calcTidEnlKollAvtHours(resolved) ?? 0;
@@ -423,11 +470,29 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           if (diff > 0.1) {
             newDeviations[iso] = { payslipH: hours, aoH: aoHours };
           }
+          // Auto-aktivera pass
+          const perShift = calcTidEnlPerShift(resolved);
+          let matched = false;
+          for (let i = 0; i < perShift.length; i++) {
+            if (Math.abs(perShift[i] - hours) <= 0.1) {
+              newActiveShifts.add(shiftKey(iso, i));
+              matched = true;
+              break;
+            }
+          }
+          if (!matched && perShift.length > 0) {
+            newActiveShifts.add(shiftKey(iso, 0));
+          }
         } else {
-          // Inget AO — skriv in som manuell tid
-          if (hours > 0) newManual[iso] = hours;
+          // Inget AO — skriv in som manuell tid och aktivera dagen
+          if (hours > 0) {
+            newManual[iso] = hours;
+            newManualActive.add(iso);
+          }
         }
       }
+      setActiveShifts(newActiveShifts);
+      setManualActiveDates(newManualActive);
       if (!aoSheet) setManualHoursByDate(newManual);
       setPayslipDeviations(newDeviations);
     } else if (semesterDates.size > 0) {
@@ -680,7 +745,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
                         const isException = resolved?.flags?.includes('undantag');
                         const shiftHours = resolved ? calcTidEnlPerShift(resolved) : [];
-                        const anyActive = shiftHours.some((_, i) => activeShifts.has(shiftKey(dateISO, i)));
+                        const anyActive = shiftHours.some((_, i) => activeShifts.has(shiftKey(dateISO, i))) || manualActiveDates.has(dateISO);
                         const holidayInfo = getHolidayInfo(dateISO);
                         const deviation = payslipDeviations[dateISO];
 
@@ -808,7 +873,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       </section>
 
-      {(activeShifts.size > 0 || savedShiftCount > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
+      {(activeShifts.size > 0 || savedShiftCount > 0 || manualActiveDates.size > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
         const totalPass = savedShiftCount + activeShifts.size;
         const totalHours = savedHours + totalActiveHours;
         const maskinDagar = maskinDagarOverride ?? totalPass;
