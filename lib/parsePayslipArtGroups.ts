@@ -96,6 +96,21 @@ export function itemsToLines(
   return lines;
 }
 
+export function extractEmployeeName(lines: Line[]): string | null {
+  for (const line of lines) {
+    if (!line.text.includes('Blidösundsbolaget AB')) continue;
+
+    const name = line.text.replace('Blidösundsbolaget AB', '').trim();
+    if (name.length >= 2) {
+      console.log('extractEmployeeName result:', name);
+      return name;
+    }
+  }
+
+  console.log('extractEmployeeName result:', null);
+  return null;
+}
+
 export function extractArtLines(lines: Line[]) {
   const out: Array<{ raw: string }> = [];
   // Some PDFs glue the art code to the description (e.g. "81001Vård...").
@@ -196,5 +211,13 @@ export async function parsePayslipArtGroups(
   }
 
   const artGroups = Object.values(merged);
+
+  // Extract employee name from first page lines and add as art '0'
+  const firstPageLines = pages[0]?.lines ?? [];
+  const employeeName = extractEmployeeName(firstPageLines);
+  if (employeeName) {
+    artGroups.unshift({ art: '0', rows: [employeeName] });
+  }
+
   return includePages ? { artGroups, pages } : { artGroups };
 }

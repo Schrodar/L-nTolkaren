@@ -14,7 +14,7 @@ import { sv } from 'date-fns/locale';
 import { AoUpload } from '@/components/AoUpload';
 import { BoatSelect } from '@/components/BoatSelect';
 import { DayModal } from '@/components/DayModal';
-import { useLoneberakningContext, ALLOWANCES } from '@/components/LoneberakningContext';
+import { useAppContext, ALLOWANCES } from '@/components/AppContext';
 import { TENURE_KEYS } from '@/lib/tariffs/types';
 import {
   getMonthGridDates,
@@ -23,6 +23,8 @@ import {
 } from '@/lib/calendar/helpers';
 import { resolveAoDay, calcTidEnlKollAvtHours, calcTidEnlPerShift } from '@/lib/ao/resolveAoDay';
 import { getHolidayInfo, getEffectiveAoDayType } from '@/lib/ao/holidayRules';
+import { calculateMonthlySalary } from '@/lib/salary/calculateMonthlySalary';
+import type { DaySalaryInput } from '@/lib/salary/calculateMonthlySalary';
 import type { AoMode, ParsedAoSheet, StoredAoSheetMeta } from '@/lib/ao/types';
 import type { BoatOption, ResolvedDaySchedule } from '@/lib/schedule/types';
 
@@ -34,8 +36,8 @@ function capitalizeFirst(value: string) {
 }
 
 export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
-  const { selectedCalendarYear, setSelectedCalendarYear, selectedTariffDate, activeAllowances, allowanceAmounts, groundSalarySelection, selectedTariff } =
-    useLoneberakningContext();
+  const { selectedCalendarYear, setSelectedCalendarYear, selectedTariffDate, activeAllowances, allowanceAmounts, groundSalarySelection, selectedTariff, saveMonth, loadMonth, loadPayslip, listPayslipsForMonth } =
+    useAppContext();
 
   const [currentMonth, setCurrentMonth] = React.useState(() => {
     const now = new Date();
@@ -69,9 +71,19 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const [maskinDagarOverride, setMaskinDagarOverride] = React.useState<number | null>(null);
   // övertid per datum
   const [overtimeByDate, setOvertimeByDate] = React.useState<Record<string, number>>({});
-  const [overtimeRateNormal, setOvertimeRateNormal] = React.useState(0);
-  const [overtimeRateQual, setOvertimeRateQual] = React.useState(0);
-  const [overtimeRateFredag, setOvertimeRateFredag] = React.useState(0);
+  // manuell ordinarie tid per datum
+  const [manualHoursByDate, setManualHoursByDate] = React.useState<Record<string, number>>({});
+  // avvikelser från lönespec-import (per datum)
+  const [payslipDeviations, setPayslipDeviations] = React.useState<Record<string, { payslipH: number; aoH: number }>>({});
+  // komp-övertid (art311/312 från lönespec)
+  const [kompHoursWeekday, setKompHoursWeekday] = React.useState(0);
+  const [kompHoursWeekend, setKompHoursWeekend] = React.useState(0);
+  // sjukdagar (art80001)
+  const [sjukByDate, setSjukByDate] = React.useState<Record<string, number>>({});
+  // semesterdagar (art700)
+  const [semesterByDate, setSemesterByDate] = React.useState<Record<string, boolean>>({});
+
+
 
   React.useEffect(() => {
     const yearFromMonth = currentMonth.getFullYear();
@@ -136,11 +148,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
   }, [aoSheet]);
 
-  const showToast = React.useCallback((message: string) => {
+  const showToast = React.useCallback((message: string, durationMs = 2500) => {
     setToastMessage(message);
     window.setTimeout(() => {
       setToastMessage((current) => (current === message ? null : current));
-    }, 2500);
+    }, durationMs);
   }, []);
 
   const today = React.useMemo(() => new Date(), []);
@@ -155,6 +167,46 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const monthLabel = capitalizeFirst(format(currentMonth, 'LLLL', { locale: sv }));
   const monthISO = format(currentMonth, 'yyyy-MM');
   const selectedTariffYear = selectedTariffDate.slice(0, 4);
+
+  // Auto-ladda månadsdata när månaden ändras
+  React.useEffect(() => {
+    const saved = loadMonth(monthISO);
+    if (!saved) return;
+    if (saved.boatSlug && saved.boatSlug !== selectedBoat) {
+      setSelectedBoat(saved.boatSlug);
+    }
+    if (saved.mode) setSelectedMode(saved.mode as AoMode);
+    setActiveShifts(new Set(saved.activeShifts ?? []));
+    setManualHoursByDate(saved.manualHoursByDate ?? {});
+    setOvertimeByDate(saved.overtimeByDate ?? {});
+    setKompHoursWeekday(saved.kompHoursWeekday ?? 0);
+    setKompHoursWeekend(saved.kompHoursWeekend ?? 0);    setSjukByDate(saved.sjukByDate ?? {});
+    setSemesterByDate(saved.semesterByDate ?? {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthISO]);
+
+  // Auto-spara månadsdata när state ändras
+  React.useEffect(() => {
+    if (activeShifts.size === 0 &&
+        Object.keys(manualHoursByDate).length === 0 &&
+        Object.keys(overtimeByDate).length === 0 &&
+        Object.keys(sjukByDate).length === 0 &&
+        Object.keys(semesterByDate).length === 0 &&
+        kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
+    saveMonth({
+      monthISO,
+      boatSlug: selectedBoat,
+      mode: selectedMode,
+      activeShifts: Array.from(activeShifts),
+      manualHoursByDate,
+      overtimeByDate,
+      kompHoursWeekday,
+      kompHoursWeekend,
+      sjukByDate,
+      semesterByDate,
+      savedAt: new Date().toISOString(),
+    });
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, kompHoursWeekday, kompHoursWeekend, selectedBoat, selectedMode, monthISO, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -176,6 +228,70 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
     return total;
   }, [activeShifts, aoSheet, selectedMode]);
+
+  // Beräkna lön automatiskt från tariffen
+  const salaryBreakdown = React.useMemo(() => {
+    const days: DaySalaryInput[] = [];
+
+    // Aktiva pass från AO
+    for (const key of activeShifts) {
+      const sepIdx = key.lastIndexOf('::');
+      const iso = key.slice(0, sepIdx);
+      const shiftIdx = Number(key.slice(sepIdx + 2));
+      const resolved = aoSheet ? resolveAoDay(aoSheet, selectedMode, iso) : null;
+      const aoHrs = resolved ? (calcTidEnlPerShift(resolved)[shiftIdx] ?? 0) : 0;
+
+      // Hämta klockslag för detta pass för exakt OB-beräkning
+      const shiftData = resolved?.shifts[shiftIdx];
+      const shiftSpan = shiftData?.work?.start && shiftData?.work?.end
+        ? { start: shiftData.work.start, end: shiftData.work.end }
+        : null;
+
+      const existing = days.find((d) => d.dateISO === iso);
+      if (existing) {
+        existing.aoHours += aoHrs;
+        if (shiftSpan) existing.shifts.push(shiftSpan);
+      } else {
+        days.push({
+          dateISO: iso,
+          aoHours: aoHrs,
+          manualHours: manualHoursByDate[iso] ?? 0,
+          shifts: shiftSpan ? [shiftSpan] : [],
+          overtimeHours: overtimeByDate[iso] ?? 0,
+          engineAttendantDays: activeAllowances.has('maskinskots') ? 1 : 0,
+        });
+      }
+    }
+
+    // Sparade timmar — lägg till som generiska dagar utan datum
+    // (savedHours har inget per-datum-state ännu, räknas som vardag)
+
+    // Manuella dagar utan AO-pass
+    for (const [iso, hrs] of Object.entries(manualHoursByDate)) {
+      if (hrs > 0 && !days.find((d) => d.dateISO === iso)) {
+        days.push({
+          dateISO: iso,
+          aoHours: 0,
+          manualHours: hrs,
+          shifts: [], // Inga klockslag — OB beräknas på dagtyp
+          overtimeHours: overtimeByDate[iso] ?? 0,
+          engineAttendantDays: activeAllowances.has('maskinskots') ? 1 : 0,
+        });
+      }
+    }
+
+    if (days.length === 0) return null;
+
+    return calculateMonthlySalary({
+      tariff: selectedTariff,
+      tenure: groundSalarySelection.tenure,
+      employmentType: groundSalarySelection.employmentType,
+      days,
+      activeAllowances,
+      allowanceAmounts,
+    });
+  }, [activeShifts, manualHoursByDate, overtimeByDate, aoSheet, selectedMode,
+      selectedTariff, groundSalarySelection, activeAllowances, allowanceAmounts]);
 
   function resolveForDate(dateISO: string): ResolvedDaySchedule {
     if (aoSheet) return resolveAoDay(aoSheet, selectedMode, dateISO);
@@ -260,6 +376,142 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setSelectedCalendarYear(nextYear);
   }
 
+  // ── Importera lönespec till kalender ────────────────────────────────────────
+
+  const [currentPayslip, setCurrentPayslip] = React.useState(() => loadPayslip(monthISO));
+  const [payslipPickerList, setPayslipPickerList] = React.useState<import('@/components/AppContext').SavedPayslip[] | null>(null);
+
+  // Uppdatera när månad ändras eller localStorage ändras från annan flik/komponent
+  React.useEffect(() => {
+    setCurrentPayslip(loadPayslip(monthISO));
+
+    function onStorage(e: StorageEvent) {
+      if (e.key?.startsWith(`loneberakning:payslip:${monthISO}`)) {
+        setCurrentPayslip(loadPayslip(monthISO));
+      }
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [monthISO, loadPayslip]);
+
+  function importPayslip() {
+    const ps = loadPayslip(monthISO);
+    if (!ps) return;
+    const ov = ps.overview;
+    const newDeviations: Record<string, { payslipH: number; aoH: number }> = {};
+
+    // Semesterdagar (art700) — bygg set först så vi kan hoppa över avvikelsecheck
+    const semesterDates = new Set<string>();
+    const newSemester: Record<string, boolean> = {};
+    const semManual = { ...manualHoursByDate };
+    for (const iso of ov.art700?.datesISO ?? []) {
+      semesterDates.add(iso);
+      newSemester[iso] = true;
+      semManual[iso] = 5;
+    }
+    setSemesterByDate(newSemester);
+
+    // Ordinarie tid (art315)
+    if (ov.art315?.hoursByDateISO) {
+      const newManual = { ...semManual };
+      for (const [iso, hours] of Object.entries(ov.art315.hoursByDateISO)) {
+        if (semesterDates.has(iso)) continue;
+        if (aoSheet) {
+          const resolved = resolveAoDay(aoSheet, selectedMode, iso);
+          const aoHours = calcTidEnlKollAvtHours(resolved) ?? 0;
+          const diff = Math.abs(hours - aoHours);
+          if (diff > 0.1) {
+            newDeviations[iso] = { payslipH: hours, aoH: aoHours };
+          }
+        } else {
+          // Inget AO — skriv in som manuell tid
+          if (hours > 0) newManual[iso] = hours;
+        }
+      }
+      if (!aoSheet) setManualHoursByDate(newManual);
+      setPayslipDeviations(newDeviations);
+    } else if (semesterDates.size > 0) {
+      // Ingen art315 men vi har semesterdagar — sätt manuella timmar ändå
+      setManualHoursByDate(semManual);
+    }
+
+    // Övertid (art301, art302 — utbetald övertid)
+    const otArts = [ov.art301, ov.art302];
+    const mergedOt: Record<string, number> = { ...overtimeByDate };
+    for (const art of otArts) {
+      if (!art?.hoursByDateISO) continue;
+      for (const [iso, hours] of Object.entries(art.hoursByDateISO)) {
+        mergedOt[iso] = (mergedOt[iso] ?? 0) + hours;
+      }
+    }
+    setOvertimeByDate(mergedOt);
+
+    // Komp-övertid (art311 vardag, art312 helg) — sparas separat
+    let kompWd = 0;
+    let kompWe = 0;
+    if (ov.art311?.hoursByDateISO) {
+      for (const hours of Object.values(ov.art311.hoursByDateISO)) {
+        kompWd += hours;
+      }
+    }
+    if (ov.art312?.hoursByDateISO) {
+      for (const hours of Object.values(ov.art312.hoursByDateISO)) {
+        kompWe += hours;
+      }
+    }
+    setKompHoursWeekday(kompWd);
+    setKompHoursWeekend(kompWe);
+
+    // Sjukdagar (art80001)
+    const mergedSjuk: Record<string, number> = {};
+    if (ov.art80001?.hoursByDateISO) {
+      for (const [iso, hours] of Object.entries(ov.art80001.hoursByDateISO)) {
+        if (hours > 0) mergedSjuk[iso] = hours;
+      }
+    }
+    setSjukByDate(mergedSjuk);
+
+    // Maskindagar (art2101)
+    if (ov.art2101) {
+      const specDagar = ov.art2101.rowsCount;
+      const calDagar = activeShifts.size;
+      if (specDagar !== calDagar) {
+        showToast(`Lönespec visar ${specDagar} maskindagar, kalendern visar ${calDagar} — kontrollera`);
+      }
+    }
+
+    // AO saknas varning
+    if (!aoSheet) {
+      showToast(`Inget AO-schema är laddat för ${monthLabel}. Ladda upp AO för perioden om du vill jämföra mot schema.`);
+    }
+
+    if (Object.keys(newDeviations).length > 0) {
+      showToast(`${Object.keys(newDeviations).length} dag(ar) avviker mellan lönespec och AO-schema`);
+    }
+  }
+
+  function loadAndSetPayslip(ps: import('@/components/AppContext').SavedPayslip) {
+    if (!aoSheet) {
+      setCurrentPayslip(ps);
+      const [y, m] = monthISO.split('-');
+      const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+      showToast(`Lönespec laddad${ps.employeeName ? ` för ${ps.employeeName}` : ''}. Inget AO-schema är aktivt för ${monthName} — ladda upp AO för perioden om du vill jämföra mot schema.`, 5000);
+      return;
+    }
+    const [y, m] = monthISO.split('-');
+    const monthStart = `${monthISO}-01`;
+    const monthEnd = `${y}-${m}-${new Date(Number(y), Number(m), 0).getDate().toString().padStart(2, '0')}`;
+    const covers = aoSheet.validPeriods.some(
+      (p) => p.from <= monthEnd && p.to >= monthStart
+    );
+    setCurrentPayslip(ps);
+    if (!covers) {
+      const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+      const rangeLabel = aoSheet.validPeriods.map((p) => `${p.from}–${p.to}`).join(', ');
+      showToast(`Lönespec laddad. Det aktiva AO-schemat gäller ${rangeLabel} och täcker inte ${monthName}.`, 5000);
+    }
+  }
+
   return (
     <>
       <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
@@ -326,7 +578,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           </h2>
 
           <label className="flex items-center gap-2 text-sm text-[#F5F7FF]/90">
-            <span>�&r</span>
+            <span>År</span>
             <select
               value={currentYear}
               onChange={handleYearChange}
@@ -345,11 +597,51 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             <span className="ml-3 text-white/40">
               AO: {aoSheet.vesselName ?? aoSheet.sheetName}
               {aoSheet.validFrom && aoSheet.validTo
-                ? ` · ${aoSheet.validFrom} � ${aoSheet.validTo}`
+                ? ` · ${aoSheet.validFrom} – ${aoSheet.validTo}`
                 : ''}
             </span>
           )}
         </p>
+
+        {/* Ladda & importera lönespec */}
+        <div className="mb-4 flex items-center gap-3 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              const allForMonth = listPayslipsForMonth(monthISO);
+              if (allForMonth.length === 0) {
+                const [y, m] = monthISO.split('-');
+                const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+                showToast(`Ingen sparad lönespec för ${monthName} ${y}. Gå till Lönespec-sidan och tolka en PDF för denna månad.`, 4000);
+                return;
+              }
+              if (allForMonth.length > 1) {
+                setPayslipPickerList(allForMonth);
+                return;
+              }
+              // Exakt en — ladda direkt
+              const ps = allForMonth[0];
+              loadAndSetPayslip(ps);
+            }}
+            className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/20"
+          >
+            Ladda lönespec
+          </button>
+          {currentPayslip && (
+            <>
+              <button
+                type="button"
+                onClick={importPayslip}
+                className="rounded-xl border border-green-400/30 bg-green-500/10 px-4 py-2 text-sm font-medium text-green-300 hover:bg-green-500/20"
+              >
+                Importera från lönespec
+              </button>
+              <span className="text-xs text-[#F5F7FF]/40">
+                {currentPayslip.fileName}
+              </span>
+            </>
+          )}
+        </div>
 
         {/* Kalenderrutnät */}
         <div className="overflow-x-auto">
@@ -390,6 +682,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         const shiftHours = resolved ? calcTidEnlPerShift(resolved) : [];
                         const anyActive = shiftHours.some((_, i) => activeShifts.has(shiftKey(dateISO, i)));
                         const holidayInfo = getHolidayInfo(dateISO);
+                        const deviation = payslipDeviations[dateISO];
 
                         const cellBg = isToday
                           ? 'bg-white/15'
@@ -422,6 +715,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               isToday ? 'font-semibold' : '',
                               anyActive ? 'ring-1 ring-inset ring-green-400/50' : '',
                             ].join(' ')}
+                            title={deviation ? `Lönespec: ${deviation.payslipH.toFixed(1)} h, AO: ${deviation.aoH.toFixed(1)} h` : undefined}
                           >
                             {shiftHours.length > 0 && (
                               <div className="absolute right-0 top-0 flex flex-col">
@@ -441,7 +735,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                     >
                                       <span className={[
                                         'h-2.5 w-2.5 rounded-full transition-colors',
-                                        active ? 'bg-green-400' : 'bg-purple-400/60',
+                                        active && deviation ? 'bg-red-700' : active ? 'bg-green-400' : 'bg-purple-400/60',
                                       ].join(' ')} />
                                     </span>
                                   );
@@ -451,16 +745,16 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                             <div className="flex items-center gap-0.5 flex-wrap">
                               <span className="text-base font-medium">{format(date, 'd')}</span>
                               {isException && (
-                                <span className="rounded bg-amber-200/30 px-1 text-[10px] text-amber-100">Avv</span>
+                                <span className="rounded bg-amber-200/30 px-1 text-[10px] text-amber-100" title="Avvikande schema denna dag enligt AO-schemat.">Avv</span>
                               )}
                               {holidayInfo?.holidayType === 'storhelg' && (
-                                <span className="rounded bg-red-500/30 px-1 text-[9px] leading-tight text-red-200">OB</span>
+                                <span className="rounded bg-red-500/30 px-1 text-[9px] leading-tight text-red-200" title="Storhelg — OB hela dygnet (påsk, pingst, midsommar, jul, nyår). Övertid räknas som kvalificerad (månadslön ÷ 72).">OB</span>
                               )}
                               {holidayInfo?.holidayType === 'småhelg' && (
-                                <span className="rounded bg-amber-500/25 px-1 text-[9px] leading-tight text-amber-200">sh</span>
+                                <span className="rounded bg-amber-500/25 px-1 text-[9px] leading-tight text-amber-200" title="Småhelg — OB hela dygnet (trettondagen, 1 maj, Kristi himmelsfärd, 6 juni, Alla helgons dag). Övertid räknas som kvalificerad (månadslön ÷ 72).">sh</span>
                               )}
                               {holidayInfo !== null && holidayInfo.holidayType === null && (
-                                <span className="rounded bg-violet-500/25 px-1 text-[9px] leading-tight text-violet-200">OB</span>
+                                <span className="rounded bg-violet-500/25 px-1 text-[9px] leading-tight text-violet-200" title="Dag före storhelg eller fredag — OB hela dygnet. Övertid räknas som vanlig (månadslön ÷ 104).">OB</span>
                               )}
                             </div>
                             {shiftHours.length > 0 && (
@@ -476,6 +770,32 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 })}
                               </div>
                             )}
+                            {deviation && !semesterByDate[dateISO] && (
+                              <span className="text-[11px] font-semibold leading-none text-red-400">
+                                {deviation.payslipH.toFixed(1)} h löns.
+                              </span>
+                            )}
+                            {semesterByDate[dateISO] && (
+                              <span className="text-[11px] font-semibold text-amber-300">semester</span>
+                            )}
+                            {(manualHoursByDate[dateISO] ?? 0) > 0 && (
+                              <span className="mt-0.5 block text-[12px] font-semibold leading-none text-green-400/80">
+                                {manualHoursByDate[dateISO].toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">man.</span>
+                              </span>
+                            )}
+                            {(overtimeByDate[dateISO] ?? 0) > 0 && (
+                              <span className="mt-0.5 block text-[12px] font-semibold leading-none text-red-400/80">
+                                {overtimeByDate[dateISO].toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">öt.</span>
+                              </span>
+                            )}
+                            {(sjukByDate[dateISO] ?? 0) > 0 && (
+                              <span className="mt-0.5 block text-[12px] font-semibold leading-none text-orange-400/80">
+                                {sjukByDate[dateISO].toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">sjuk</span>
+                              </span>
+                            )}
                           </button>
                         );
                       })}
@@ -488,23 +808,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       </section>
 
-      {(activeShifts.size > 0 || savedShiftCount > 0) && (() => {
+      {(activeShifts.size > 0 || savedShiftCount > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
         const totalPass = savedShiftCount + activeShifts.size;
         const totalHours = savedHours + totalActiveHours;
         const maskinDagar = maskinDagarOverride ?? totalPass;
         const maskinRate = allowanceAmounts['maskinskots'];
         const maskinSum = maskinDagar * maskinRate;
 
-        let totalNormalOT = 0;
-        let totalFredagOT = 0;
-        let totalQualOT = 0;
-        for (const [iso, h] of Object.entries(overtimeByDate)) {
-          if (!h) continue;
-          const eff = getEffectiveAoDayType(iso);
-          if (eff === 'söndag' || eff === 'lördag') totalQualOT += h;
-          else if (eff === 'fredag') totalFredagOT += h;
-          else totalNormalOT += h;
-        }
+        const sb = salaryBreakdown;
         return (
           <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
             <div className="mb-4 flex items-center justify-between">
@@ -543,171 +854,175 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
             </div>
 
-            {/* Tillägg & övertid */}
-            <div className="mt-3 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/10">
+            {/* Löneberäkning */}
+            {sb && (
+              <div className="mt-3 divide-y divide-white/8 overflow-hidden rounded-xl border border-white/10">
 
-              {/* Grundlön */}
-              {(() => {
-                const tenure = groundSalarySelection.tenure;
-                const tenureDisplay = tenure === 'beg' ? 0 : parseInt(tenure.slice(1), 10);
-                const salaryValue = selectedTariff[groundSalarySelection.employmentType][tenure];
-                const unit = groundSalarySelection.employmentType === 'monthly' ? 'kr/mån' : 'kr/tim';
-                const typeLabel = groundSalarySelection.employmentType === 'monthly' ? 'Månadslön' : groundSalarySelection.employmentType === 'hourlySeasonal' ? 'Timlön säsong' : 'Timlön korttid';
-                return (
-                  <div className="flex items-center gap-4 bg-white/5 px-4 py-3">
+                {/* Grundlön */}
+                <div className="flex items-center gap-4 bg-white/5 px-4 py-3">
+                  <div className="flex-1">
+                    <div className="text-[11px] font-medium uppercase tracking-wide text-[#F5F7FF]/40">
+                      Grundlön — {groundSalarySelection.employmentType === 'monthly' ? 'Månadslön' : groundSalarySelection.employmentType === 'hourlySeasonal' ? 'Timlön säsong' : 'Timlön korttid'}
+                    </div>
+                    <div className="mt-0.5 text-2xl font-bold text-[#F5F7FF]">
+                      {sb.baseSalary.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} <span className="text-base font-normal text-[#F5F7FF]/60">kr</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* OB */}
+                {sb.obPay > 0 && (
+                  <div className="flex items-center gap-4 bg-violet-400/8 px-4 py-3">
                     <div className="flex-1">
-                      <div className="text-[11px] font-medium uppercase tracking-wide text-[#F5F7FF]/40">Grundlön — {typeLabel}</div>
-                      <div className="mt-0.5 text-2xl font-bold text-[#F5F7FF]">
-                        {salaryValue.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} <span className="text-base font-normal text-[#F5F7FF]/60">{unit}</span>
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-violet-300/60">OB-ersättning</div>
+                      <div className="mt-0.5 text-2xl font-bold text-violet-300">
+                        {sb.obPay.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                      </div>
+                      <div className="text-[11px] text-violet-300/40">
+                        {sb.obHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {(sb.baseSalary / 300).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-[#F5F7FF]/70">{tenureDisplay}</div>
-                      <div className="text-[11px] text-[#F5F7FF]/30">nivå</div>
-                    </div>
                   </div>
-                );
-              })()}
-              {activeAllowances.has('maskinskots') && (
-                <div className="flex items-center gap-4 bg-amber-400/8 px-4 py-3">
-                  <div className="flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-amber-300/60">Maskinskötstillägg</div>
-                    <div className="mt-0.5 text-2xl font-bold text-amber-300">
-                      {maskinSum.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
-                    </div>
-                    <div className="text-[11px] text-amber-300/40">{maskinDagar} × {maskinRate} kr/dag</div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        value={maskinDagar}
-                        min={0}
-                        onChange={(e) => setMaskinDagarOverride(Number(e.target.value))}
-                        className="w-14 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-base font-bold text-amber-200 [appearance:textfield]"
-                      />
-                      {maskinDagarOverride !== null && (
-                        <button type="button" onClick={() => setMaskinDagarOverride(null)}
-                          className="text-sm text-amber-300/40 hover:text-amber-300" title="Återställ">↺</button>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-amber-300/40">dagar</div>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Rederitillägg */}
-              {activeAllowances.has('rederi') && (
-                <div className="flex items-center gap-4 bg-sky-400/8 px-4 py-3">
-                  <div className="flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-sky-300/60">Rederitillägg</div>
-                    <div className="mt-0.5 text-2xl font-bold text-sky-300">
-                      {allowanceAmounts['rederi'].toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                {/* Övertid vardag */}
+                {sb.overtimeWeekday > 0 && (
+                  <div className="flex items-center gap-4 bg-orange-400/8 px-4 py-3">
+                    <div className="flex-1">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-orange-300/60">Övertid vardag</div>
+                      <div className="mt-0.5 text-2xl font-bold text-orange-300">
+                        {sb.overtimeWeekday.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                      </div>
+                      <div className="text-[11px] text-orange-300/40">
+                        {sb.overtimeWeekdayHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {(sb.baseSalary / 104).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[11px] text-sky-300/40">/mån</div>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Däckmanstillägg */}
-              {activeAllowances.has('dackman') && (
-                <div className="flex items-center gap-4 bg-violet-400/8 px-4 py-3">
-                  <div className="flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-violet-300/60">Däckmanstillägg</div>
-                    <div className="mt-0.5 text-2xl font-bold text-violet-300">
-                      {allowanceAmounts['dackman'].toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                {/* Övertid helg */}
+                {sb.overtimeWeekend > 0 && (
+                  <div className="flex items-center gap-4 bg-rose-400/8 px-4 py-3">
+                    <div className="flex-1">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-rose-300/60">Övertid lör/sön/helg</div>
+                      <div className="mt-0.5 text-2xl font-bold text-rose-300">
+                        {sb.overtimeWeekend.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                      </div>
+                      <div className="text-[11px] text-rose-300/40">
+                        {sb.overtimeWeekendHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {(sb.baseSalary / 72).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-[11px] text-violet-300/40">/mån</div>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Vanlig övertid */}
-              {(totalNormalOT > 0 || true) && (
-                <div className="flex items-center gap-4 bg-orange-400/8 px-4 py-3">
-                  <div className="flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-orange-300/60">Vanlig övertid</div>
-                    <div className="mt-0.5 text-2xl font-bold text-orange-300">
-                      {(totalNormalOT * overtimeRateNormal).toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                {/* Komp-övertid (informativt, ej i bruttolön) */}
+                {(() => {
+                  const monthlyRate = selectedTariff.monthly[groundSalarySelection.tenure];
+                  const kompWdRate = monthlyRate / 104;
+                  const kompWeRate = monthlyRate / 72;
+                  const kompWeekdayKr = kompHoursWeekday * kompWdRate;
+                  const kompWeekendKr = kompHoursWeekend * kompWeRate;
+                  const kompTotalKr = kompWeekdayKr + kompWeekendKr;
+                  const kompTotalHours = kompHoursWeekday + kompHoursWeekend;
+                  if (kompTotalHours <= 0) return null;
+                  return (
+                    <div className="flex items-center gap-4 bg-teal-400/8 px-4 py-3">
+                      <div className="flex-1">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-teal-300/60">Komp-övertid (ej utbetald)</div>
+                        <div className="mt-0.5 text-2xl font-bold text-teal-300">
+                          {kompTotalHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h{' '}
+                          <span className="text-base font-normal text-teal-300/60">— värt {kompTotalKr.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr vid utbetalning</span>
+                        </div>
+                        <div className="text-[11px] text-teal-300/40">
+                          {kompHoursWeekday > 0 && <>{kompHoursWeekday.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h vardag × {kompWdRate.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h</>}
+                          {kompHoursWeekday > 0 && kompHoursWeekend > 0 && ' + '}
+                          {kompHoursWeekend > 0 && <>{kompHoursWeekend.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h helg × {kompWeRate.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h</>}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-[11px] text-orange-300/40">
-                      {totalNormalOT.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {overtimeRateNormal} kr/h
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        value={overtimeRateNormal}
-                        min={0}
-                        onChange={(e) => setOvertimeRateNormal(Number(e.target.value))}
-                        className="w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-base font-bold text-orange-200 [appearance:textfield]"
-                      />
-                    </div>
-                    <div className="text-[11px] text-orange-300/40">kr/h</div>
-                  </div>
-                </div>
-              )}
+                  );
+                })()}
 
-              {/* Fredag-OB */}
-              {(totalFredagOT > 0 || true) && (
-                <div className="flex items-center gap-4 bg-violet-400/8 px-4 py-3">
-                  <div className="flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-violet-300/60">Fredag-OB</div>
-                    <div className="mt-0.5 text-2xl font-bold text-violet-300">
-                      {(totalFredagOT * overtimeRateFredag).toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
-                    </div>
-                    <div className="text-[11px] text-violet-300/40">
-                      {totalFredagOT.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {overtimeRateFredag} kr/h
+                {/* Maskinskötstillägg */}
+                {sb.engineAttendant > 0 && (
+                  <div className="flex items-center gap-4 bg-amber-400/8 px-4 py-3">
+                    <div className="flex-1">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-amber-300/60">Maskinskötstillägg</div>
+                      <div className="mt-0.5 text-2xl font-bold text-amber-300">
+                        {sb.engineAttendant.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                      </div>
+                      <div className="text-[11px] text-amber-300/40">{sb.engineAttendantDays} dagar × {allowanceAmounts['maskinskots']} kr/dag</div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        value={overtimeRateFredag}
-                        min={0}
-                        onChange={(e) => setOvertimeRateFredag(Number(e.target.value))}
-                        className="w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-base font-bold text-violet-200 [appearance:textfield]"
-                      />
-                    </div>
-                    <div className="text-[11px] text-violet-300/40">kr/h</div>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Kvalificerad övertid */}
-              {(totalQualOT > 0 || true) && (
-                <div className="flex items-center gap-4 bg-rose-400/8 px-4 py-3">
-                  <div className="flex-1">
-                    <div className="text-[11px] font-medium uppercase tracking-wide text-rose-300/60">Kvalificerad övertid (lör/sön/storhelg)</div>
-                    <div className="mt-0.5 text-2xl font-bold text-rose-300">
-                      {(totalQualOT * overtimeRateQual).toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
-                    </div>
-                    <div className="text-[11px] text-rose-300/40">
-                      {totalQualOT.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {overtimeRateQual} kr/h
+                {/* Rederitillägg */}
+                {sb.rederiAllowance > 0 && (
+                  <div className="flex items-center gap-4 bg-sky-400/8 px-4 py-3">
+                    <div className="flex-1">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-sky-300/60">Rederitillägg</div>
+                      <div className="mt-0.5 text-2xl font-bold text-sky-300">
+                        {sb.rederiAllowance.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        value={overtimeRateQual}
-                        min={0}
-                        onChange={(e) => setOvertimeRateQual(Number(e.target.value))}
-                        className="w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-base font-bold text-rose-200 [appearance:textfield]"
-                      />
-                    </div>
-                    <div className="text-[11px] text-rose-300/40">kr/h</div>
-                  </div>
-                </div>
-              )}
+                )}
 
-            </div>
+                {/* Däckmanstillägg */}
+                {sb.dackmanAllowance > 0 && (
+                  <div className="flex items-center gap-4 bg-violet-400/8 px-4 py-3">
+                    <div className="flex-1">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-violet-300/60">Däckmanstillägg</div>
+                      <div className="mt-0.5 text-2xl font-bold text-violet-300">
+                        {sb.dackmanAllowance.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sjukavdrag */}
+                {(() => {
+                  const monthlyRate = selectedTariff.monthly[groundSalarySelection.tenure];
+                  const sjukPerTimme = monthlyRate / 173;
+                  const sjukHours = Object.values(sjukByDate).reduce((s, h) => s + h, 0);
+                  const sjukAvdrag = sjukHours * sjukPerTimme;
+                  if (sjukHours <= 0) return null;
+                  return (
+                    <div className="flex items-center gap-4 bg-red-400/8 px-4 py-3">
+                      <div className="flex-1">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-red-300/60">Sjukavdrag (karensdag)</div>
+                        <div className="mt-0.5 text-2xl font-bold text-red-400">
+                          &minus;{sjukAvdrag.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
+                        </div>
+                        <div className="text-[11px] text-red-300/40">
+                          {sjukHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h &times; {sjukPerTimme.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h (månadslön &divide; 173)
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Total */}
+                {(() => {
+                  const monthlyRate = selectedTariff.monthly[groundSalarySelection.tenure];
+                  const sjukPerTimme = monthlyRate / 173;
+                  const sjukHours = Object.values(sjukByDate).reduce((s, h) => s + h, 0);
+                  const sjukAvdrag = sjukHours * sjukPerTimme;
+                  const adjustedTotal = sb.total - sjukAvdrag;
+                  return (
+                    <div className="flex items-center gap-4 bg-white/10 px-4 py-4">
+                      <div className="flex-1">
+                        <div className="text-[11px] font-medium uppercase tracking-wide text-[#F5F7FF]/50">Estimerad bruttolön</div>
+                        <div className="mt-0.5 text-3xl font-bold text-[#F5F7FF]">
+                          {adjustedTotal.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} <span className="text-lg font-normal text-[#F5F7FF]/60">kr</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              </div>
+            )}
           </section>
         );
       })()}
@@ -717,6 +1032,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         dateISO={selectedDateISO}
         resolvedDay={selectedResolvedDay}
         tidEnlKollAvt={selectedDayTidEnl}
+        manualHours={selectedDateISO ? (manualHoursByDate[selectedDateISO] ?? 0) : 0}
+        onManualHoursChange={(h) => {
+          if (!selectedDateISO) return;
+          setManualHoursByDate((prev) => ({ ...prev, [selectedDateISO]: h }));
+        }}
         overtime={selectedDateISO ? (overtimeByDate[selectedDateISO] ?? 0) : 0}
         onOvertimeChange={(h) => {
           if (!selectedDateISO) return;
@@ -755,6 +1075,42 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       {toastMessage && (
         <div className="fixed bottom-4 right-4 z-50 rounded-xl border border-white/15 bg-[#0B1B3A] px-4 py-3 text-sm text-[#F5F7FF] shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
           {toastMessage}
+        </div>
+      )}
+
+      {/* Payslip picker modal (multiple payslips for same month) */}
+      {payslipPickerList && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl border border-white/15 bg-[#0B1B3A] p-6">
+            <h2 className="mb-4 text-lg font-semibold">Välj lönespec att importera</h2>
+            <div className="divide-y divide-white/8 overflow-hidden rounded-xl border border-white/10">
+              {payslipPickerList.map((ps) => (
+                <button
+                  key={`${ps.monthISO}:${ps.employeeName ?? ps.fileName}`}
+                  type="button"
+                  onClick={() => {
+                    setPayslipPickerList(null);
+                    loadAndSetPayslip(ps);
+                  }}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm hover:bg-white/5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{ps.employeeName ?? 'Okänd'}</div>
+                    <div className="truncate text-xs text-[#F5F7FF]/50">{ps.fileName}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPayslipPickerList(null)}
+                className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+              >
+                Avbryt
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>

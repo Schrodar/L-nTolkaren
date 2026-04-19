@@ -12,6 +12,8 @@ type DayModalProps = {
   dateISO: string | null;
   resolvedDay: ResolvedDaySchedule | null;
   tidEnlKollAvt: number | null;
+  manualHours: number;
+  onManualHoursChange: (hours: number) => void;
   overtime: number;
   onOvertimeChange: (hours: number) => void;
   onClose: () => void;
@@ -23,7 +25,7 @@ function formatHHMM(hours: number): string {
   return `${h}:${m.toString().padStart(2, '0')}`;
 }
 
-export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, overtime, onOvertimeChange, onClose }: DayModalProps) {
+export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHours, onManualHoursChange, overtime, onOvertimeChange, onClose }: DayModalProps) {
   React.useEffect(() => {
     if (!isOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -99,9 +101,29 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, overtime
         </div>
 
         {shifts.length === 0 ? (
-          <p className="mt-4 text-sm text-[#F5F7FF]/60">
-            Ingen arbetstid i schemat för denna dag.
-          </p>
+          <div className="mt-4 space-y-3">
+            <p className="text-sm text-[#F5F7FF]/60">
+              Ingen arbetstid i schemat för denna dag.
+            </p>
+            <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-green-300">Ordinarie tid (manuell)</div>
+                <div className="mt-0.5 text-xs text-white/40">timmar idag</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={manualHours || ''}
+                  min={0}
+                  step={0.5}
+                  placeholder="0"
+                  onChange={(e) => onManualHoursChange(e.target.value === '' ? 0 : Number(e.target.value))}
+                  className="w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-lg font-bold text-green-200 [appearance:textfield]"
+                />
+                <span className="text-sm text-green-300">h</span>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="mt-4 space-y-3">
             {shifts.map((shift, i) => {
@@ -149,6 +171,25 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, overtime
                 </span>
               </div>
             )}
+
+            <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-green-300">Ordinarie tid (manuell)</div>
+                <div className="mt-0.5 text-xs text-white/40">timmar idag</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={manualHours || ''}
+                  min={0}
+                  step={0.5}
+                  placeholder="0"
+                  onChange={(e) => onManualHoursChange(e.target.value === '' ? 0 : Number(e.target.value))}
+                  className="w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-lg font-bold text-green-200 [appearance:textfield]"
+                />
+                <span className="text-sm text-green-300">h</span>
+              </div>
+            </div>
 
             <div className={`flex items-center justify-between rounded-xl border px-4 py-3 ${otBorder}`}>
               <div>

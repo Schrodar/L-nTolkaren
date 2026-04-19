@@ -221,6 +221,7 @@ export type ArtSummary80001 = {
 };
 
 export type PayslipArtOverview = {
+  art0?: { employeeName: string };
   art315?: ArtSummary315;
   art311?: ArtSummary311;
   art301?: ArtSummary301;
@@ -877,6 +878,12 @@ export function summarizePayslipArtGroups(
   const artK5441Group = artGroups.find((g) => g.art === 'K5441');
 
   const overview: PayslipArtOverview = { byArt };
+
+  // 0: Employee name
+  const art0Group = artGroups.find((g) => g.art === '0');
+  if (art0Group?.rows?.[0]) {
+    overview.art0 = { employeeName: art0Group.rows[0] };
+  }
 
   // 315: Årsarbetstid, nominell → summera arbetad tid (första siffran efter datum-intervall brukar vara timmar)
   if (art315Group?.rows?.length) {

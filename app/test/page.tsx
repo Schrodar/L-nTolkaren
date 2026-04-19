@@ -2,7 +2,7 @@
 import React from 'react';
 
 // Ändra import-path om du inte har @/ alias
-import namdo from '../../data/schedules/ao_vinter_2025_26/Namdo.json';
+import namdo from '../../storage/ao/namdo-reg-bet-smrn-fartygsnr.json';
 
 type TimeRange = { start: string | null; end: string | null };
 

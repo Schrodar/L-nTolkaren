@@ -5,10 +5,13 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { parsePayslipArtGroups } from '@/lib/parsePayslipArtGroups';
+import { summarizePayslipArtGroups } from '@/lib/summarizePayslipArtGroups';
 import { PayslipArtGroupsPanel } from '@/components/PayslipArtGroupsPanel';
+import { useAppContext } from '@/components/AppContext';
 import type { PayslipArtGroups } from '@/components/PayslipArtGroupsPanel';
 
 export default function Page() {
+  const { savePayslip, listPayslipsForMonth } = useAppContext();
   const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [isDragOver, setIsDragOver] = React.useState(false);
   const [fileName, setFileName] = React.useState<string | null>(null);
@@ -19,6 +22,12 @@ export default function Page() {
   const [isParsing, setIsParsing] = React.useState(false);
   const [artGroupsData, setArtGroupsData] =
     React.useState<PayslipArtGroups | null>(null);
+  const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saved'>('idle');
+  const [confirmOverwrite, setConfirmOverwrite] = React.useState<{
+    payslip: Parameters<typeof savePayslip>[0];
+    existingName: string;
+    month: string;
+  } | null>(null);
 
   function pickFile() {
     setError(null);
@@ -80,9 +89,10 @@ export default function Page() {
       const arrayBuffer = await file.arrayBuffer();
 
       const parsedArt = await parsePayslipArtGroups(arrayBuffer, {
-        includePages: false,
+        includePages: true,
       });
       setArtGroupsData({ fileName: file.name, artGroups: parsedArt.artGroups });
+      setSaveStatus('idle');
 
       requestAnimationFrame(() => {
         document
@@ -97,6 +107,50 @@ export default function Page() {
     } finally {
       setIsParsing(false);
     }
+  }
+
+  function handleSavePayslip() {
+    if (!artGroupsData) return;
+    const overview = summarizePayslipArtGroups(artGroupsData.artGroups);
+    const monthISO =
+      overview.art315?.monthISO ??
+      overview.art301?.monthISO ??
+      overview.art311?.monthISO ??
+      null;
+    if (!monthISO) return;
+
+    const employeeName = artGroupsData.artGroups.find((g) => g.art === '0')?.rows[0] ?? null;
+    const payslipToSave = {
+      fileName: artGroupsData.fileName ?? 'okänd.pdf',
+      monthISO,
+      employeeName,
+      overview,
+      savedAt: new Date().toISOString(),
+    };
+
+    // Check for existing payslip with same month + name
+    const existing = listPayslipsForMonth(monthISO);
+    const duplicate = existing.find((p) => p.employeeName === employeeName);
+    if (duplicate) {
+      const [y, m] = monthISO.split('-');
+      const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+      setConfirmOverwrite({
+        payslip: payslipToSave,
+        existingName: employeeName ?? 'Okänd',
+        month: `${monthName} ${y}`,
+      });
+      return;
+    }
+
+    savePayslip(payslipToSave);
+    setSaveStatus('saved');
+  }
+
+  function doOverwrite() {
+    if (!confirmOverwrite) return;
+    savePayslip(confirmOverwrite.payslip);
+    setConfirmOverwrite(null);
+    setSaveStatus('saved');
   }
 
   return (
@@ -126,6 +180,12 @@ export default function Page() {
               className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
             >
               Löneberäkning
+            </Link>
+            <Link
+              href="/loneberakning/hantera"
+              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+            >
+              Hantera
             </Link>
           </nav>
         </div>
@@ -288,15 +348,31 @@ export default function Page() {
           </div>
 
           {artGroupsData ? (
-            <button
-              type="button"
-              onClick={() => {
-                setArtGroupsData(null);
-              }}
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Rensa
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSavePayslip}
+                disabled={saveStatus === 'saved'}
+                className={[
+                  'rounded-xl border px-3 py-2 text-sm font-medium',
+                  saveStatus === 'saved'
+                    ? 'border-green-400/30 bg-green-500/10 text-green-300'
+                    : 'border-sky-400/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20',
+                ].join(' ')}
+              >
+                {saveStatus === 'saved' ? 'Sparad' : 'Spara till löneberäkning'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setArtGroupsData(null);
+                  setSaveStatus('idle');
+                }}
+                className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+              >
+                Rensa
+              </button>
+            </div>
           ) : null}
         </div>
 
@@ -313,6 +389,38 @@ export default function Page() {
           </div>
         )}
       </section>
+
+      {/* Confirm overwrite modal */}
+      {confirmOverwrite && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="mx-4 w-full max-w-md rounded-2xl border border-white/15 bg-[#0B1B3A] p-6">
+            <h2 className="mb-3 text-lg font-semibold">Skriva över lönespec?</h2>
+            <p className="mb-6 text-sm text-[#F5F7FF]/70">
+              Det finns redan en sparad lönespec för{' '}
+              <span className="font-medium text-[#F5F7FF]">{confirmOverwrite.existingName}</span>{' '}
+              i{' '}
+              <span className="font-medium text-[#F5F7FF]">{confirmOverwrite.month}</span>.
+              Vill du skriva över den?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmOverwrite(null)}
+                className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={doOverwrite}
+                className="rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/20"
+              >
+                Skriv över
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

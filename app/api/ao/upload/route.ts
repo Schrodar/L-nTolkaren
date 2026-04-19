@@ -143,6 +143,7 @@ export async function POST(request: NextRequest) {
     blockCount: number;
     modeCount: { is: number; isfri: number };
     exceptionCount: number;
+    hasIsVariant: boolean;
     parseErrors: string[];
   }> = [];
 
