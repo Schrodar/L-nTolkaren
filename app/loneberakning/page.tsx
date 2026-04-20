@@ -53,6 +53,27 @@ function LoneberakningPageInner() {
         <LoneberakningProvider>
           <div className="space-y-6">
             <AoUpload onUploaded={() => setUploadKey((k) => k + 1)} />
+
+            <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
+              <h2 className="mb-4 text-lg font-semibold">Ladda ner senaste AO-scheman</h2>
+              <div className="flex flex-wrap gap-3">
+                <a
+                  href="/Ao_Vinter_2025-26_Däck_utg260203.xlsx"
+                  download
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15 transition-colors"
+                >
+                  Senaste AO Vinter 2025–26
+                </a>
+                <a
+                  href="/Ao_VårHöst_2026_Däck_260409.xlsx"
+                  download
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15 transition-colors"
+                >
+                  Senaste AO Vår/Höst 2026
+                </a>
+              </div>
+            </section>
+
             <TariffEditor />
             <WorkCalendar refreshKey={uploadKey} />
           </div>
