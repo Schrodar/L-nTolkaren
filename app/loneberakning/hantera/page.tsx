@@ -6,14 +6,10 @@ import * as React from 'react';
 import { AoUpload } from '@/components/AoUpload';
 import { useAppContext } from '@/components/AppContext';
 import type { SavedPayslip } from '@/components/AppContext';
+import { deleteLocalAoSheet, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import type { StoredAoSheetMeta } from '@/lib/ao/types';
 
-type AoSheetMeta = {
-  slug: string;
-  sheetName: string;
-  vesselName: string | null;
-  validFrom?: string;
-  validTo?: string;
-};
+type AoSheetMeta = StoredAoSheetMeta;
 
 export default function HanteraPage() {
   return (
@@ -114,12 +110,14 @@ function AoSection() {
 
   const fetchSheets = React.useCallback(() => {
     setLoading(true);
+    const localSheets = listLocalAoSheets();
     fetch('/api/ao/sheets')
       .then((r) => r.json())
       .then((data: { success: boolean; sheets?: AoSheetMeta[] }) => {
-        setSheets(data.success ? (data.sheets ?? []) : []);
+        const serverSheets = data.success ? (data.sheets ?? []) : [];
+        setSheets(mergeAoSheetLists(serverSheets, localSheets));
       })
-      .catch(() => setSheets([]))
+      .catch(() => setSheets(mergeAoSheetLists([], localSheets)))
       .finally(() => setLoading(false));
   }, []);
 
@@ -128,9 +126,16 @@ function AoSection() {
   }, [fetchSheets]);
 
   async function handleDelete(slug: string) {
-    const res = await fetch(`/api/ao/sheets/${encodeURIComponent(slug)}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (data.success) {
+    const localDeleted = deleteLocalAoSheet(slug);
+    let serverDeleted = false;
+    try {
+      const res = await fetch(`/api/ao/sheets/${encodeURIComponent(slug)}`, { method: 'DELETE' });
+      const data = await res.json();
+      serverDeleted = Boolean(data.success);
+    } catch {
+      // Servern kan sakna filen (efemär lagring) — lokal borttagning räcker
+    }
+    if (localDeleted || serverDeleted) {
       setSheets((prev) => prev.filter((s) => s.slug !== slug));
     }
   }

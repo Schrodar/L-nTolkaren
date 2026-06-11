@@ -4,6 +4,12 @@ import * as React from 'react';
 import Link from 'next/link';
 
 import type { AoBlock, ParsedAoSheet, StoredAoSheetMeta } from '@/lib/ao/types';
+import {
+  deleteLocalAoSheet,
+  listLocalAoSheets,
+  mergeAoSheetLists,
+  saveLocalAoSheets,
+} from '@/lib/ao/clientStore';
 
 // ── Typer ──────────────────────────────────────────────────────────────────
 
@@ -340,13 +346,16 @@ function StoredSheetRow({
 
   async function handleDelete() {
     setDeleting(true);
+    const localDeleted = deleteLocalAoSheet(sheet.slug);
     try {
       const res = await fetch(`/api/ao/sheets/${sheet.slug}`, {
         method: 'DELETE',
       });
-      if (res.ok) {
+      if (res.ok || localDeleted) {
         onDelete(sheet.slug);
       }
+    } catch {
+      if (localDeleted) onDelete(sheet.slug);
     } finally {
       setDeleting(false);
       setConfirming(false);
@@ -482,12 +491,14 @@ export default function AoImportPage() {
   const [storedSheets, setStoredSheets] = React.useState<StoredAoSheetMeta[]>([]);
   const [loadingStored, setLoadingStored] = React.useState(true);
 
-  // Ladda sparade scheman vid mount
+  // Ladda sparade scheman vid mount (lokalt sparade + ev. server-lagrade)
   React.useEffect(() => {
+    const localSheets = listLocalAoSheets();
+    setStoredSheets(mergeAoSheetLists([], localSheets));
     fetch('/api/ao/sheets')
       .then((r) => r.json())
       .then((data) => {
-        if (data.success) setStoredSheets(data.sheets ?? []);
+        if (data.success) setStoredSheets(mergeAoSheetLists(data.sheets ?? [], localSheets));
       })
       .catch(() => {})
       .finally(() => setLoadingStored(false));
@@ -552,10 +563,23 @@ export default function AoImportPage() {
       setResult(data);
 
       if (data.success) {
+        // Spara i webbläsaren — serverns lagring är efemär på Netlify
+        const uploaded = (data.sheets ?? [])
+          .map((s, i) => ({ slug: s.slug, sheet: (data.parsedSheets ?? [])[i] }))
+          .filter((e): e is { slug: string; sheet: ParsedAoSheet } => Boolean(e.slug && e.sheet));
+        saveLocalAoSheets(uploaded);
+
         // Uppdatera listan med sparade scheman
-        const sheetsRes = await fetch('/api/ao/sheets');
-        const sheetsData = await sheetsRes.json();
-        if (sheetsData.success) setStoredSheets(sheetsData.sheets ?? []);
+        const localSheets = listLocalAoSheets();
+        try {
+          const sheetsRes = await fetch('/api/ao/sheets');
+          const sheetsData = await sheetsRes.json();
+          setStoredSheets(
+            mergeAoSheetLists(sheetsData.success ? (sheetsData.sheets ?? []) : [], localSheets),
+          );
+        } catch {
+          setStoredSheets(mergeAoSheetLists([], localSheets));
+        }
       } else {
         setError(data.error ?? 'Något gick fel vid importen.');
       }
@@ -615,7 +639,7 @@ export default function AoImportPage() {
             och sparar allt som strukturerad JSON-data för vidare användning i Lönetolkaren.
           </p>
           <p className="mt-3 text-sm text-white/50">
-            Filen sparas lokalt på servern – ingen data skickas utanför systemet.
+            Datan sparas i din webbläsare – ingen data skickas utanför systemet.
             Du kan sedan välja båt, isläge och datum för att hämta exakt AO för en specifik dag.
           </p>
         </section>

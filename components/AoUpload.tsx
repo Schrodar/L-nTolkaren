@@ -2,6 +2,9 @@
 
 import * as React from 'react';
 
+import { saveLocalAoSheets } from '@/lib/ao/clientStore';
+import type { ParsedAoSheet } from '@/lib/ao/types';
+
 type Status = { type: 'idle' } | { type: 'loading' } | { type: 'success'; names: string[] } | { type: 'error'; message: string };
 
 export function AoUpload({ onUploaded }: { onUploaded: () => void }) {
@@ -27,6 +30,18 @@ export function AoUpload({ onUploaded }: { onUploaded: () => void }) {
         (s: { vesselName?: string; sheetName?: string }) =>
           (s.vesselName ?? s.sheetName ?? '').replace(/\s+Reg\..*$/i, '').trim(),
       );
+
+      // Spara även i webbläsaren — på Netlify är serverns filsystem efemärt,
+      // så lokal lagring är det som faktiskt persisterar för användaren.
+      // sheets[] och parsedSheets[] byggs i samma ordning i upload-routen.
+      const sheets: { slug: string }[] = data.sheets ?? [];
+      const parsed: ParsedAoSheet[] = data.parsedSheets ?? [];
+      saveLocalAoSheets(
+        sheets
+          .map((s, i) => ({ slug: s.slug, sheet: parsed[i] }))
+          .filter((e): e is { slug: string; sheet: ParsedAoSheet } => Boolean(e.slug && e.sheet)),
+      );
+
       setStatus({ type: 'success', names });
       onUploaded();
     } catch {

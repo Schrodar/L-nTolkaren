@@ -1,0 +1,412 @@
+{
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\api\\ao\\sheets\\[slug]\\route.ts": {
+    "mtime": 1781183417.2309284,
+    "ast_hash": "cc1da4bee01535d252c758a6a28831a8",
+    "semantic_hash": "cc1da4bee01535d252c758a6a28831a8"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\api\\ao\\sheets\\route.ts": {
+    "mtime": 1781183417.232926,
+    "ast_hash": "063a683abed0b3027c0e8bf7c90c37ce",
+    "semantic_hash": "063a683abed0b3027c0e8bf7c90c37ce"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\api\\ao\\upload\\route.ts": {
+    "mtime": 1781183417.232926,
+    "ast_hash": "7c4ec214ef04aba8de97d95a855868d3",
+    "semantic_hash": "7c4ec214ef04aba8de97d95a855868d3"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\api\\schedules\\route.ts": {
+    "mtime": 1781183417.2349246,
+    "ast_hash": "e3af70b29fa1e56325b709926f1a2129",
+    "semantic_hash": "e3af70b29fa1e56325b709926f1a2129"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\faq\\page.tsx": {
+    "mtime": 1781183417.2349246,
+    "ast_hash": "80a1b33a2bafcf9efc81e7780299053b",
+    "semantic_hash": "80a1b33a2bafcf9efc81e7780299053b"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\layout.tsx": {
+    "mtime": 1781183417.2369258,
+    "ast_hash": "ef1929abc2a7f0292d8ac185d0ea0290",
+    "semantic_hash": "ef1929abc2a7f0292d8ac185d0ea0290"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\loneberakning\\ao\\page.tsx": {
+    "mtime": 1781183417.2389424,
+    "ast_hash": "b8429997dd2cd05f9740ef63b646c7dc",
+    "semantic_hash": "b8429997dd2cd05f9740ef63b646c7dc"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\loneberakning\\hantera\\page.tsx": {
+    "mtime": 1781183417.2409248,
+    "ast_hash": "f1f21a6773610d9371f4d5d635409565",
+    "semantic_hash": "f1f21a6773610d9371f4d5d635409565"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\loneberakning\\page.tsx": {
+    "mtime": 1781183417.2409248,
+    "ast_hash": "fc1d7441109c172c43dbff6a54088176",
+    "semantic_hash": "fc1d7441109c172c43dbff6a54088176"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\app\\page.tsx": {
+    "mtime": 1781183417.242929,
+    "ast_hash": "5e881ae4f3221405dd2db91e667b4c5f",
+    "semantic_hash": "5e881ae4f3221405dd2db91e667b4c5f"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\AoUpload.tsx": {
+    "mtime": 1781183417.242929,
+    "ast_hash": "7ff05ecd8dcc92d333a48d3db73050ff",
+    "semantic_hash": "7ff05ecd8dcc92d333a48d3db73050ff"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\AppContext.tsx": {
+    "mtime": 1781183417.242929,
+    "ast_hash": "5afabc92f8f1b92f67d06caca824e11d",
+    "semantic_hash": "5afabc92f8f1b92f67d06caca824e11d"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\BoatSelect.tsx": {
+    "mtime": 1781183417.2449322,
+    "ast_hash": "b72ca0577c5c44b7e51e3d7c7b49e418",
+    "semantic_hash": "b72ca0577c5c44b7e51e3d7c7b49e418"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\CalendarModal.tsx": {
+    "mtime": 1781183417.2449322,
+    "ast_hash": "52d7e2ab79d7e3cb5077c2bc73926210",
+    "semantic_hash": "52d7e2ab79d7e3cb5077c2bc73926210"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\DayModal.tsx": {
+    "mtime": 1781183417.2469409,
+    "ast_hash": "2e9c4ecc2209958263fad70e800c1f28",
+    "semantic_hash": "2e9c4ecc2209958263fad70e800c1f28"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\LoneberakningContext.tsx": {
+    "mtime": 1781183417.2469409,
+    "ast_hash": "23143c2e67ebcaf87382c136c0040dd1",
+    "semantic_hash": "23143c2e67ebcaf87382c136c0040dd1"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\MonthSummary.tsx": {
+    "mtime": 1781183417.2469409,
+    "ast_hash": "bbbb82dd7cab84b76143dab6fb73e0e1",
+    "semantic_hash": "bbbb82dd7cab84b76143dab6fb73e0e1"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\PayslipArtGroupsPanel.tsx": {
+    "mtime": 1781183417.2489407,
+    "ast_hash": "a7484a300e309d4ef1d9a8335cfbaffd",
+    "semantic_hash": "a7484a300e309d4ef1d9a8335cfbaffd"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\TariffEditor.tsx": {
+    "mtime": 1781183417.2489407,
+    "ast_hash": "44fac1c002f31e11ebabf4d75ce46f79",
+    "semantic_hash": "44fac1c002f31e11ebabf4d75ce46f79"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\components\\WorkCalendar.tsx": {
+    "mtime": 1781183417.2509446,
+    "ast_hash": "91424a1cfbd47aee9fd4797ddc6e22f2",
+    "semantic_hash": "91424a1cfbd47aee9fd4797ddc6e22f2"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\eslint.config.mjs": {
+    "mtime": 1781183417.2509446,
+    "ast_hash": "6c4307ffa009658f5c97f5629094c0c2",
+    "semantic_hash": "6c4307ffa009658f5c97f5629094c0c2"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\legacy\\litenPars.ts": {
+    "mtime": 1781183417.2509446,
+    "ast_hash": "fd744164fdc0e8b29aafadaa94373c2b",
+    "semantic_hash": "fd744164fdc0e8b29aafadaa94373c2b"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\legacy\\parseBlidosundsPayslip.ts": {
+    "mtime": 1781183417.2532368,
+    "ast_hash": "ff6e95674cd955faeca1aa66dd913adc",
+    "semantic_hash": "ff6e95674cd955faeca1aa66dd913adc"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\ao\\holidayRules.ts": {
+    "mtime": 1781183417.2552533,
+    "ast_hash": "e355be1a9f8aca91fa2c0a5a5bee7148",
+    "semantic_hash": "e355be1a9f8aca91fa2c0a5a5bee7148"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\ao\\parseAoWorkbook.ts": {
+    "mtime": 1781183417.2552533,
+    "ast_hash": "c97aabe48ebefe2a6396cd027810b96a",
+    "semantic_hash": "c97aabe48ebefe2a6396cd027810b96a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\ao\\resolveAoDay.ts": {
+    "mtime": 1781183417.2552533,
+    "ast_hash": "53b3f77be34757f067a061f8b43e426c",
+    "semantic_hash": "53b3f77be34757f067a061f8b43e426c"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\ao\\storage.ts": {
+    "mtime": 1781183417.257485,
+    "ast_hash": "440a5636c1f886c0ebf4d1137dcfaf1a",
+    "semantic_hash": "440a5636c1f886c0ebf4d1137dcfaf1a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\ao\\types.ts": {
+    "mtime": 1781183417.257485,
+    "ast_hash": "5409d9e8e123d121199f58694e663da1",
+    "semantic_hash": "5409d9e8e123d121199f58694e663da1"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\aoparser\\aoparser.ts": {
+    "mtime": 1781183417.259505,
+    "ast_hash": "01b5af19f73ad66a59e22e9453aba67a",
+    "semantic_hash": "01b5af19f73ad66a59e22e9453aba67a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\calendar\\helpers.ts": {
+    "mtime": 1781183417.259505,
+    "ast_hash": "24d3bd597536a88dee419ef6671716fc",
+    "semantic_hash": "24d3bd597536a88dee419ef6671716fc"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\calendar\\importFromPayslip.ts": {
+    "mtime": 1781183417.2615042,
+    "ast_hash": "63044b7b4da6539e2bf79a9dd2ecd558",
+    "semantic_hash": "63044b7b4da6539e2bf79a9dd2ecd558"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\calendar\\types.ts": {
+    "mtime": 1781183417.2615042,
+    "ast_hash": "96d352f14391892c6ac8d2db786ad7da",
+    "semantic_hash": "96d352f14391892c6ac8d2db786ad7da"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\parsePayslipArtGroups.ts": {
+    "mtime": 1781183417.2615042,
+    "ast_hash": "4d669561d9f6eda71c559e6a77e665a1",
+    "semantic_hash": "4d669561d9f6eda71c559e6a77e665a1"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\salary\\calculateMonthlySalary.ts": {
+    "mtime": 1781183417.2635179,
+    "ast_hash": "885d713a8ee20bebf1127bee2cbe37bb",
+    "semantic_hash": "885d713a8ee20bebf1127bee2cbe37bb"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\schedule\\load.ts": {
+    "mtime": 1781183417.2646134,
+    "ast_hash": "b0225c7e8b37b3ef3e056c92210c3ae3",
+    "semantic_hash": "b0225c7e8b37b3ef3e056c92210c3ae3"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\schedule\\resolveDay.ts": {
+    "mtime": 1781183417.2656403,
+    "ast_hash": "63918e2331bf9e7002b613b58b6506cf",
+    "semantic_hash": "63918e2331bf9e7002b613b58b6506cf"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\schedule\\types.ts": {
+    "mtime": 1781183417.2656403,
+    "ast_hash": "e74bfd87f3d539d0220577349f2b8006",
+    "semantic_hash": "e74bfd87f3d539d0220577349f2b8006"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\schedules\\selectors.ts": {
+    "mtime": 1781183417.26767,
+    "ast_hash": "99d95bd24d83185fe1f8ffabe755e7d2",
+    "semantic_hash": "99d95bd24d83185fe1f8ffabe755e7d2"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\schedules\\server.ts": {
+    "mtime": 1781183417.26767,
+    "ast_hash": "42c3831eb06851641dfcecb15935911b",
+    "semantic_hash": "42c3831eb06851641dfcecb15935911b"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\schedules\\types.ts": {
+    "mtime": 1781183417.26767,
+    "ast_hash": "05d61bbf5b716732e110c5d99760e62c",
+    "semantic_hash": "05d61bbf5b716732e110c5d99760e62c"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\summarizePayslipArtGroups.ts": {
+    "mtime": 1781183417.269666,
+    "ast_hash": "c493649f3f1283964dab35fcd06cc256",
+    "semantic_hash": "c493649f3f1283964dab35fcd06cc256"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\tariffs\\blidosund_2025_2026.json": {
+    "mtime": 1781183417.269666,
+    "ast_hash": "598ecc949eb0e7a3f23bf69b3865d3d9",
+    "semantic_hash": "598ecc949eb0e7a3f23bf69b3865d3d9"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\tariffs\\defaultTariffs.ts": {
+    "mtime": 1781183417.269666,
+    "ast_hash": "91d11b4024f1ba538673c9c3e7d79092",
+    "semantic_hash": "91d11b4024f1ba538673c9c3e7d79092"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\tariffs\\types.ts": {
+    "mtime": 1781183417.271666,
+    "ast_hash": "94e149d1f1cd99bacb8b9287f4c94b40",
+    "semantic_hash": "94e149d1f1cd99bacb8b9287f4c94b40"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\artGroupProcessing.ts": {
+    "mtime": 1781183417.273147,
+    "ast_hash": "5df3ef4ed7c92b25f4feb42ff91d6f3a",
+    "semantic_hash": "5df3ef4ed7c92b25f4feb42ff91d6f3a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\dateExtraction.ts": {
+    "mtime": 1781183417.273147,
+    "ast_hash": "9728956626a34a517217eaf349609601",
+    "semantic_hash": "9728956626a34a517217eaf349609601"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\fieldExtraction.ts": {
+    "mtime": 1781183417.2741709,
+    "ast_hash": "9e1a79e45deacbc445a749400558efa7",
+    "semantic_hash": "9e1a79e45deacbc445a749400558efa7"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\lineExtraction.ts": {
+    "mtime": 1781183417.2741709,
+    "ast_hash": "58e04ebf207745548b32044f0484c763",
+    "semantic_hash": "58e04ebf207745548b32044f0484c763"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\numberParsing.ts": {
+    "mtime": 1781183417.2761953,
+    "ast_hash": "d3fe1bcac6eb89b8664c42a31726ee55",
+    "semantic_hash": "d3fe1bcac6eb89b8664c42a31726ee55"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\taxExtraction.ts": {
+    "mtime": 1781183417.2761953,
+    "ast_hash": "84c1d3ab708a879c7b6c3344527cfccf",
+    "semantic_hash": "84c1d3ab708a879c7b6c3344527cfccf"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\textNormalization.ts": {
+    "mtime": 1781183417.2761953,
+    "ast_hash": "3fc543b42157862e6998dba84463c95e",
+    "semantic_hash": "3fc543b42157862e6998dba84463c95e"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\timeExtraction.ts": {
+    "mtime": 1781183417.2777023,
+    "ast_hash": "64906664bd0445c1d7a62c949b2fb2c5",
+    "semantic_hash": "64906664bd0445c1d7a62c949b2fb2c5"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\lib\\utils\\totalsCalculation.ts": {
+    "mtime": 1781183417.2777023,
+    "ast_hash": "212456d79b6b32274714fb1eaaba8f4e",
+    "semantic_hash": "212456d79b6b32274714fb1eaaba8f4e"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\next.config.ts": {
+    "mtime": 1781183417.2777023,
+    "ast_hash": "025f4fcb6024b3524d19492cf7ce54a2",
+    "semantic_hash": "025f4fcb6024b3524d19492cf7ce54a2"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\package.json": {
+    "mtime": 1781183417.2801802,
+    "ast_hash": "071f837018d4be9ec821741e2153812a",
+    "semantic_hash": "071f837018d4be9ec821741e2153812a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\postcss.config.mjs": {
+    "mtime": 1781183417.2822206,
+    "ast_hash": "481fac0fdecd70e1821cc30b86030c1a",
+    "semantic_hash": "481fac0fdecd70e1821cc30b86030c1a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\pdf.worker.min.mjs": {
+    "mtime": 1781183417.3968856,
+    "ast_hash": "5d07fb600080d0a9e4ce55f44f976ad7",
+    "semantic_hash": "5d07fb600080d0a9e4ce55f44f976ad7"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\tsconfig.json": {
+    "mtime": 1781183417.459388,
+    "ast_hash": "feca9329c19da6ce1cca13d2f18676f2",
+    "semantic_hash": "feca9329c19da6ce1cca13d2f18676f2"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\types\\pdfjs-dist.d.ts": {
+    "mtime": 1781183417.4613945,
+    "ast_hash": "c63f1cce4e8e8a83a97a3e3893608c49",
+    "semantic_hash": "c63f1cce4e8e8a83a97a3e3893608c49"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\AGENT_PLAN.md": {
+    "mtime": 1781183417.2249296,
+    "ast_hash": "49b477731fbff9123eb37698dd67062c",
+    "semantic_hash": "49b477731fbff9123eb37698dd67062c"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\CONTEXT_REFACTOR.md": {
+    "mtime": 1781183417.2249296,
+    "ast_hash": "ac9f06887dcb8e28e8b2dfb0614dd87e",
+    "semantic_hash": "ac9f06887dcb8e28e8b2dfb0614dd87e"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\PARSING_REFACTOR.md": {
+    "mtime": 1781183417.2269287,
+    "ast_hash": "65d880caaa02c92eb81e59adefee43a5",
+    "semantic_hash": "65d880caaa02c92eb81e59adefee43a5"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\README.md": {
+    "mtime": 1781183417.2269287,
+    "ast_hash": "9162add00befbcdb432430f405c4ad8d",
+    "semantic_hash": "9162add00befbcdb432430f405c4ad8d"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\storage\\ao\\README.md": {
+    "mtime": 1781183417.459388,
+    "ast_hash": "5a34a12c82dcf253774f0c673f189057",
+    "semantic_hash": "5a34a12c82dcf253774f0c673f189057"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\skargardstrafik-2025-2027_webb_final.pdf": {
+    "mtime": 1781183417.4573865,
+    "ast_hash": "aec3b9bbb3b68277b5537b29fa467228",
+    "semantic_hash": "aec3b9bbb3b68277b5537b29fa467228"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\1.png": {
+    "mtime": 1781183417.3573675,
+    "ast_hash": "30ae98add4880d3c32ba292482813b6a",
+    "semantic_hash": "30ae98add4880d3c32ba292482813b6a"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\2.png": {
+    "mtime": 1781183417.3593674,
+    "ast_hash": "afb910e90b64891cfd4797249d30ae4b",
+    "semantic_hash": "afb910e90b64891cfd4797249d30ae4b"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\3.png": {
+    "mtime": 1781183417.3593674,
+    "ast_hash": "29d816049f9f48d2095832b5d3092421",
+    "semantic_hash": "29d816049f9f48d2095832b5d3092421"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\4.png": {
+    "mtime": 1781183417.3613675,
+    "ast_hash": "e9d3400f279f003a6fa93dabdd846a37",
+    "semantic_hash": "e9d3400f279f003a6fa93dabdd846a37"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\5.png": {
+    "mtime": 1781183417.363364,
+    "ast_hash": "702b48baac6b90be6a9b66270873c43c",
+    "semantic_hash": "702b48baac6b90be6a9b66270873c43c"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\ankare.png": {
+    "mtime": 1781183417.3793635,
+    "ast_hash": "95829c6ce17c4bf09663cdad1e867c6e",
+    "semantic_hash": "95829c6ce17c4bf09663cdad1e867c6e"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\express.png": {
+    "mtime": 1781183417.3873725,
+    "ast_hash": "f32ecc63f74d89a042285082e48eb1f2",
+    "semantic_hash": "f32ecc63f74d89a042285082e48eb1f2"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\file.svg": {
+    "mtime": 1781183417.3873725,
+    "ast_hash": "d09f95206c3fa0bb9bd9fefabfd0ea71",
+    "semantic_hash": "d09f95206c3fa0bb9bd9fefabfd0ea71"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\globe.svg": {
+    "mtime": 1781183417.3893793,
+    "ast_hash": "2aaafa6a49b6563925fe440891e32717",
+    "semantic_hash": "2aaafa6a49b6563925fe440891e32717"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\next.svg": {
+    "mtime": 1781183417.3893793,
+    "ast_hash": "8e061864f388b47f33a1c3780831193e",
+    "semantic_hash": "8e061864f388b47f33a1c3780831193e"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\semester.png": {
+    "mtime": 1781183417.4028997,
+    "ast_hash": "16998ddb2e70ce7eeb629ebf19801224",
+    "semantic_hash": "16998ddb2e70ce7eeb629ebf19801224"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\skarpo.png": {
+    "mtime": 1781183417.413379,
+    "ast_hash": "153a3cdadb67331497cb357e62a8edec",
+    "semantic_hash": "153a3cdadb67331497cb357e62a8edec"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\temp.png": {
+    "mtime": 1781183417.423388,
+    "ast_hash": "89171b02d6afcca25b4c8a508b7838a4",
+    "semantic_hash": "89171b02d6afcca25b4c8a508b7838a4"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\ticktack.png": {
+    "mtime": 1781183417.4313793,
+    "ast_hash": "94a5258174a676b785876a0f254a4fcb",
+    "semantic_hash": "94a5258174a676b785876a0f254a4fcb"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\vab.png": {
+    "mtime": 1781183417.4393792,
+    "ast_hash": "14d4dbb0daa40d43b57533759c9bd05c",
+    "semantic_hash": "14d4dbb0daa40d43b57533759c9bd05c"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\vercel.svg": {
+    "mtime": 1781183417.4393792,
+    "ast_hash": "c0af2f507b369b085b35ef4bbe3bcf1e",
+    "semantic_hash": "c0af2f507b369b085b35ef4bbe3bcf1e"
+  },
+  "C:\\Users\\schro\\Desktop\\kod\\l\u00f6netolkare sidan\\L-nTolkaren\\public\\window.svg": {
+    "mtime": 1781183417.4413877,
+    "ast_hash": "a2760511c65806022ad20adf74370ff3",
+    "semantic_hash": "a2760511c65806022ad20adf74370ff3"
+  }
+}

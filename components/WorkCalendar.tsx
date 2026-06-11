@@ -22,6 +22,7 @@ import {
   normalizeDateISO,
 } from '@/lib/calendar/helpers';
 import { resolveAoDay, calcTidEnlKollAvtHours, calcTidEnlPerShift } from '@/lib/ao/resolveAoDay';
+import { getLocalAoSheetForMonth, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
 import { getHolidayInfo, getEffectiveAoDayType } from '@/lib/ao/holidayRules';
 import { calculateMonthlySalary } from '@/lib/salary/calculateMonthlySalary';
 import type { DaySalaryInput } from '@/lib/salary/calculateMonthlySalary';
@@ -33,6 +34,38 @@ const WEEKDAY_LABELS = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
 function capitalizeFirst(value: string) {
   if (!value) return value;
   return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+/**
+ * Hittar den delmängd av dagens AO-pass vars summerade timmar matchar
+ * lönespecens timmar för dagen (tolerans 0,1 h). Delmängder med färre pass
+ * prövas först så att ett ensamt pass vinner över kombinationer.
+ * Returnerar passindex eller null om inget stämmer.
+ */
+function findMatchingShifts(perShift: number[], payslipHours: number): number[] | null {
+  const n = perShift.length;
+  if (n === 0 || n > 6) return null;
+
+  const masks = Array.from({ length: (1 << n) - 1 }, (_, k) => k + 1);
+  const popcount = (m: number) => {
+    let c = 0;
+    while (m) { c += m & 1; m >>= 1; }
+    return c;
+  };
+  masks.sort((a, b) => popcount(a) - popcount(b));
+
+  for (const mask of masks) {
+    let sum = 0;
+    const indices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (mask & (1 << i)) {
+        sum += perShift[i];
+        indices.push(i);
+      }
+    }
+    if (Math.abs(sum - payslipHours) <= 0.1) return indices;
+  }
+  return null;
 }
 
 export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
@@ -75,6 +108,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const [manualHoursByDate, setManualHoursByDate] = React.useState<Record<string, number>>({});
   // avvikelser från lönespec-import (per datum)
   const [payslipDeviations, setPayslipDeviations] = React.useState<Record<string, { payslipH: number; aoH: number }>>({});
+  // dagar där lönespec och AO stämmer överens (per datum)
+  const [payslipConfirmed, setPayslipConfirmed] = React.useState<Record<string, boolean>>({});
   // komp-övertid (art311/312 från lönespec)
   const [kompHoursWeekday, setKompHoursWeekday] = React.useState(0);
   const [kompHoursWeekend, setKompHoursWeekend] = React.useState(0);
@@ -98,19 +133,25 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   React.useEffect(() => {
     let canceled = false;
 
+    const toBoats = (sheets: StoredAoSheetMeta[]): BoatOption[] =>
+      sheets.map((s) => {
+        const raw = s.vesselName ?? s.sheetName;
+        const label = raw.replace(/\s+Reg\..*$/i, '').trim() || raw;
+        return { value: s.slug, label };
+      });
+
+    // Lokalt sparade AO:n visas direkt; server-listan (lokal dev) mergas in.
+    const localSheets = listLocalAoSheets();
+    setAvailableBoats(toBoats(mergeAoSheetLists([], localSheets)));
+
     fetch('/api/ao/sheets')
       .then((r) => r.json())
       .then((data: { success: boolean; sheets?: StoredAoSheetMeta[] }) => {
         if (canceled || !data.success) return;
-        const boats: BoatOption[] = (data.sheets ?? []).map((s) => {
-          const raw = s.vesselName ?? s.sheetName;
-          const label = raw.replace(/\s+Reg\..*$/i, '').trim() || raw;
-          return { value: s.slug, label };
-        });
-        setAvailableBoats(boats);
+        setAvailableBoats(toBoats(mergeAoSheetLists(data.sheets ?? [], localSheets)));
       })
       .catch(() => {
-        if (!canceled) setAvailableBoats([]);
+        // Behåll den lokala listan om servern inte svarar
       });
 
     return () => { canceled = true; };
@@ -122,6 +163,19 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
     if (!selectedBoat) {
       setAoSheet(null);
+      return;
+    }
+
+    // Lokalt sparad AO har företräde — serverns lagring är efemär på Netlify.
+    // En båt kan ha flera AO-utgåvor (vinter, vår/höst) — välj den vars
+    // giltighetsperioder täcker den visade månaden.
+    const localSheet = getLocalAoSheetForMonth(
+      selectedBoat,
+      format(currentMonth, 'yyyy-MM'),
+    );
+    if (localSheet) {
+      setAoSheet(localSheet);
+      setLoadingSheet(false);
       return;
     }
 
@@ -141,7 +195,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       });
 
     return () => { canceled = true; };
-  }, [selectedBoat]);
+  }, [selectedBoat, currentMonth, boatListKey, refreshKey]);
 
   // Återställ till isfri automatiskt om AO-filen saknar is-variant (sommarsäsong)
   React.useEffect(() => {
@@ -416,6 +470,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   // Återställ avvikelser och kör AO-täckningskontroll när båt byts
   React.useEffect(() => {
     setPayslipDeviations({});
+    setPayslipConfirmed({});
 
     if (aoSheet && currentPayslip) {
       const [y, m] = monthISO.split('-');
@@ -438,6 +493,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     if (!ps) return;
     const ov = ps.overview;
     const newDeviations: Record<string, { payslipH: number; aoH: number }> = {};
+    const newConfirmed: Record<string, boolean> = {};
 
     // Semesterdagar (art700) — bygg set först så vi kan hoppa över avvikelsecheck
     const semesterDates = new Set<string>();
@@ -466,22 +522,23 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         if (aoSheet) {
           const resolved = resolveAoDay(aoSheet, selectedMode, iso);
           const aoHours = calcTidEnlKollAvtHours(resolved) ?? 0;
-          const diff = Math.abs(hours - aoHours);
-          if (diff > 0.1) {
-            newDeviations[iso] = { payslipH: hours, aoH: aoHours };
-          }
-          // Auto-aktivera pass
           const perShift = calcTidEnlPerShift(resolved);
-          let matched = false;
-          for (let i = 0; i < perShift.length; i++) {
-            if (Math.abs(perShift[i] - hours) <= 0.1) {
+
+          // Lönespecens timmar är summan per dag. Vid på/avmönstring har AO
+          // två pass samma dag — specen kan motsvara ena passet, andra passet
+          // eller båda. Hitta den delmängd av passen vars summa stämmer.
+          const matchedShifts = findMatchingShifts(perShift, hours);
+
+          if (matchedShifts) {
+            for (const i of matchedShifts) {
               newActiveShifts.add(shiftKey(iso, i));
-              matched = true;
-              break;
             }
-          }
-          if (!matched && perShift.length > 0) {
-            newActiveShifts.add(shiftKey(iso, 0));
+            newConfirmed[iso] = true;
+          } else {
+            newDeviations[iso] = { payslipH: hours, aoH: aoHours };
+            if (perShift.length > 0) {
+              newActiveShifts.add(shiftKey(iso, 0));
+            }
           }
         } else {
           // Inget AO — skriv in som manuell tid och aktivera dagen
@@ -495,6 +552,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       setManualActiveDates(newManualActive);
       if (!aoSheet) setManualHoursByDate(newManual);
       setPayslipDeviations(newDeviations);
+      setPayslipConfirmed(newConfirmed);
     } else if (semesterDates.size > 0) {
       // Ingen art315 men vi har semesterdagar — sätt manuella timmar ändå
       setManualHoursByDate(semManual);
@@ -748,6 +806,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         const anyActive = shiftHours.some((_, i) => activeShifts.has(shiftKey(dateISO, i))) || manualActiveDates.has(dateISO);
                         const holidayInfo = getHolidayInfo(dateISO);
                         const deviation = payslipDeviations[dateISO];
+                        const confirmed = payslipConfirmed[dateISO];
 
                         const cellBg = isToday
                           ? 'bg-white/15'
@@ -778,9 +837,17 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               inCurrentMonth ? 'text-[#F5F7FF]' : 'text-[#F5F7FF]/45',
                               cellBg,
                               isToday ? 'font-semibold' : '',
-                              anyActive ? 'ring-1 ring-inset ring-green-400/50' : '',
+                              confirmed
+                                ? 'ring-2 ring-inset ring-green-400/80 bg-green-500/10'
+                                : anyActive ? 'ring-1 ring-inset ring-green-400/50' : '',
                             ].join(' ')}
-                            title={deviation ? `Lönespec: ${deviation.payslipH.toFixed(1)} h, AO: ${deviation.aoH.toFixed(1)} h` : undefined}
+                            title={
+                              deviation
+                                ? `Lönespec: ${deviation.payslipH.toFixed(1)} h, AO: ${deviation.aoH.toFixed(1)} h`
+                                : confirmed
+                                ? 'Lönespec stämmer med AO-schemat'
+                                : undefined
+                            }
                           >
                             {shiftHours.length > 0 && (
                               <div className="absolute right-0 top-0 flex flex-col">
@@ -811,6 +878,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               <span className="text-base font-medium">{format(date, 'd')}</span>
                               {isException && (
                                 <span className="rounded bg-amber-200/30 px-1 text-[10px] text-amber-100" title="Avvikande schema denna dag enligt AO-schemat.">Avv</span>
+                              )}
+                              {confirmed && (
+                                <span className="rounded bg-green-500/25 px-1 text-[10px] leading-tight text-green-300" title="Lönespec stämmer med AO-schemat.">✓</span>
                               )}
                               {holidayInfo?.holidayType === 'storhelg' && (
                                 <span className="rounded bg-red-500/30 px-1 text-[9px] leading-tight text-red-200" title="Storhelg — OB hela dygnet (påsk, pingst, midsommar, jul, nyår). Övertid räknas som kvalificerad (månadslön ÷ 72).">OB</span>
