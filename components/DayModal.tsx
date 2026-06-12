@@ -107,8 +107,8 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
             </p>
             <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3">
               <div>
-                <div className="text-sm font-semibold text-green-300">Ordinarie tid (manuell)</div>
-                <div className="mt-0.5 text-xs text-white/40">timmar idag</div>
+                <div className="text-sm font-semibold text-green-300">Bokförd tid</div>
+                <div className="mt-0.5 text-xs text-white/40">tid inskriven av kontoret</div>
               </div>
               <div className="flex items-center gap-2">
                 <input
@@ -167,15 +167,15 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
               <div className="flex items-center justify-between rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3">
                 <span className="text-sm font-semibold text-sky-300">Tid enl. avtal</span>
                 <span className="text-xl font-bold text-sky-300">
-                  {formatHHMM(tidEnlKollAvt)}
+                  {tidEnlKollAvt.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h
                 </span>
               </div>
             )}
 
             <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3">
               <div>
-                <div className="text-sm font-semibold text-green-300">Ordinarie tid (manuell)</div>
-                <div className="mt-0.5 text-xs text-white/40">timmar idag</div>
+                <div className="text-sm font-semibold text-green-300">Bokförd tid</div>
+                <div className="mt-0.5 text-xs text-white/40">tid inskriven av kontoret</div>
               </div>
               <div className="flex items-center gap-2">
                 <input

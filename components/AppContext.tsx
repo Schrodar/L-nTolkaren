@@ -60,6 +60,7 @@ export type SavedMonth = {
   sjukByDate: Record<string, number>;            // datum → sjuktimmar (art80001)
   semesterByDate: Record<string, boolean>;       // datum → semesterdag (art700)
   manualActiveDates?: string[];                   // aktiva dagar utan AO-pass
+  maskinDates?: string[];                         // datum med maskinskötseltillägg (art2101)
   savedAt: string;                               // ISO-timestamp
 };
 

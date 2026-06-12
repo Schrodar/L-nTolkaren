@@ -36,10 +36,24 @@ function capitalizeFirst(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+/** Timmar med upp till två decimaler (AO kan vara minutexakt, t.ex. 10,25). */
+function fmtHours(value: number): string {
+  return value.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+}
+
+/** Lönespec-timmar — alltid två decimaler, som på specen (t.ex. 8,42). */
+function fmtPayslipHours(value: number): string {
+  return value.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 /**
  * Hittar den delmängd av dagens AO-pass vars summerade timmar matchar
- * lönespecens timmar för dagen (tolerans 0,1 h). Delmängder med färre pass
- * prövas först så att ett ensamt pass vinner över kombinationer.
+ * lönespecens timmar för dagen. Delmängder med färre pass prövas först så
+ * att ett ensamt pass vinner över kombinationer.
+ *
+ * Tolerans 0,03 h (~2 min): lönespecen anger timmar med två decimaler och
+ * AO-tider är minutexakta, så endast avrundningsskillnader ska tillåtas —
+ * verkliga avvikelser (kontoret har bokfört annan tid) ska flaggas.
  * Returnerar passindex eller null om inget stämmer.
  */
 function findMatchingShifts(perShift: number[], payslipHours: number): number[] | null {
@@ -63,7 +77,7 @@ function findMatchingShifts(perShift: number[], payslipHours: number): number[] 
         indices.push(i);
       }
     }
-    if (Math.abs(sum - payslipHours) <= 0.1) return indices;
+    if (Math.abs(sum - payslipHours) <= 0.03) return indices;
   }
   return null;
 }
@@ -119,6 +133,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const [semesterByDate, setSemesterByDate] = React.useState<Record<string, boolean>>({});
   // aktiva dagar utan AO-pass (import utan AO)
   const [manualActiveDates, setManualActiveDates] = React.useState<Set<string>>(new Set());
+  // datum med maskinskötseltillägg (art2101 från lönespec)
+  const [maskinByDate, setMaskinByDate] = React.useState<Set<string>>(new Set());
 
 
 
@@ -239,6 +255,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setKompHoursWeekend(saved.kompHoursWeekend ?? 0);    setSjukByDate(saved.sjukByDate ?? {});
     setSemesterByDate(saved.semesterByDate ?? {});
     setManualActiveDates(new Set(saved.manualActiveDates ?? []));
+    setMaskinByDate(new Set(saved.maskinDates ?? []));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthISO]);
 
@@ -250,6 +267,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         Object.keys(sjukByDate).length === 0 &&
         Object.keys(semesterByDate).length === 0 &&
         manualActiveDates.size === 0 &&
+        maskinByDate.size === 0 &&
         kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
     saveMonth({
       monthISO,
@@ -263,9 +281,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       sjukByDate,
       semesterByDate,
       manualActiveDates: Array.from(manualActiveDates),
+      maskinDates: Array.from(maskinByDate),
       savedAt: new Date().toISOString(),
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, kompHoursWeekday, kompHoursWeekend, selectedBoat, selectedMode, monthISO, saveMonth]);
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, kompHoursWeekday, kompHoursWeekend, selectedBoat, selectedMode, monthISO, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -540,8 +559,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
               newActiveShifts.add(shiftKey(iso, 0));
             }
           }
+          // Rensa ev. kvarliggande bokförd tid från tidigare import utan AO
+          // — med AO laddat representeras dagen av sina pass.
+          delete newManual[iso];
+          newManualActive.delete(iso);
         } else {
-          // Inget AO — skriv in som manuell tid och aktivera dagen
+          // Inget AO — skriv in som bokförd tid och aktivera dagen
           if (hours > 0) {
             newManual[iso] = hours;
             newManualActive.add(iso);
@@ -550,7 +573,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       }
       setActiveShifts(newActiveShifts);
       setManualActiveDates(newManualActive);
-      if (!aoSheet) setManualHoursByDate(newManual);
+      setManualHoursByDate(newManual);
       setPayslipDeviations(newDeviations);
       setPayslipConfirmed(newConfirmed);
     } else if (semesterDates.size > 0) {
@@ -558,9 +581,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       setManualHoursByDate(semManual);
     }
 
-    // Övertid (art301, art302 — utbetald övertid)
+    // Övertid (art301, art302 — utbetald övertid). Ersätter helt vid import
+    // så att omimport inte dubblerar timmarna.
     const otArts = [ov.art301, ov.art302];
-    const mergedOt: Record<string, number> = { ...overtimeByDate };
+    const mergedOt: Record<string, number> = {};
     for (const art of otArts) {
       if (!art?.hoursByDateISO) continue;
       for (const [iso, hours] of Object.entries(art.hoursByDateISO)) {
@@ -594,13 +618,16 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
     setSjukByDate(mergedSjuk);
 
-    // Maskindagar (art2101)
+    // Maskindagar (art2101) — markera dagarna i kalendern
     if (ov.art2101) {
+      setMaskinByDate(new Set(ov.art2101.datesISO ?? []));
       const specDagar = ov.art2101.rowsCount;
       const calDagar = activeShifts.size;
       if (specDagar !== calDagar) {
         showToast(`Lönespec visar ${specDagar} maskindagar, kalendern visar ${calDagar} — kontrollera`);
       }
+    } else {
+      setMaskinByDate(new Set());
     }
 
     // AO saknas varning
@@ -843,7 +870,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                             ].join(' ')}
                             title={
                               deviation
-                                ? `Lönespec: ${deviation.payslipH.toFixed(1)} h, AO: ${deviation.aoH.toFixed(1)} h`
+                                ? `Lönespec: ${fmtPayslipHours(deviation.payslipH)} h, AO: ${fmtPayslipHours(deviation.aoH)} h`
                                 : confirmed
                                 ? 'Lönespec stämmer med AO-schemat'
                                 : undefined
@@ -891,6 +918,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               {holidayInfo !== null && holidayInfo.holidayType === null && (
                                 <span className="rounded bg-violet-500/25 px-1 text-[9px] leading-tight text-violet-200" title="Dag före storhelg eller fredag — OB hela dygnet. Övertid räknas som vanlig (månadslön ÷ 104).">OB</span>
                               )}
+                              {maskinByDate.has(dateISO) && (
+                                <span className="rounded bg-cyan-500/25 px-1 text-[9px] leading-tight text-cyan-200" title="Maskinskötseltillägg utbetalt denna dag enligt lönespecen.">M</span>
+                              )}
                             </div>
                             {shiftHours.length > 0 && (
                               <div className="mt-0.5 flex flex-col gap-0.5">
@@ -898,7 +928,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                   const active = activeShifts.has(shiftKey(dateISO, i));
                                   return (
                                     <span key={i} className={['text-[13px] font-semibold leading-none transition-colors', active ? 'text-green-300' : 'text-sky-300/50'].join(' ')}>
-                                      {h.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
+                                      {fmtHours(h)} h{' '}
                                       <span className="text-[10px] font-normal opacity-70">avt.</span>
                                     </span>
                                   );
@@ -907,7 +937,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                             )}
                             {deviation && !semesterByDate[dateISO] && (
                               <span className="text-[11px] font-semibold leading-none text-red-400">
-                                {deviation.payslipH.toFixed(1)} h löns.
+                                {fmtPayslipHours(deviation.payslipH)} h löns.
                               </span>
                             )}
                             {semesterByDate[dateISO] && (
@@ -915,19 +945,19 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                             )}
                             {(manualHoursByDate[dateISO] ?? 0) > 0 && (
                               <span className="mt-0.5 block text-[12px] font-semibold leading-none text-green-400/80">
-                                {manualHoursByDate[dateISO].toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
-                                <span className="text-[10px] font-normal opacity-70">man.</span>
+                                {fmtHours(manualHoursByDate[dateISO])} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">bokf.</span>
                               </span>
                             )}
                             {(overtimeByDate[dateISO] ?? 0) > 0 && (
                               <span className="mt-0.5 block text-[12px] font-semibold leading-none text-red-400/80">
-                                {overtimeByDate[dateISO].toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
+                                {fmtHours(overtimeByDate[dateISO])} h{' '}
                                 <span className="text-[10px] font-normal opacity-70">öt.</span>
                               </span>
                             )}
                             {(sjukByDate[dateISO] ?? 0) > 0 && (
                               <span className="mt-0.5 block text-[12px] font-semibold leading-none text-orange-400/80">
-                                {sjukByDate[dateISO].toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h{' '}
+                                {fmtHours(sjukByDate[dateISO])} h{' '}
                                 <span className="text-[10px] font-normal opacity-70">sjuk</span>
                               </span>
                             )}

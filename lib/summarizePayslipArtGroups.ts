@@ -71,6 +71,8 @@ export type ArtSummary2101 = {
   art: '2101';
   rowsCount: number;
   sekTotal: number;
+  /** Datum tillägget utbetalts för — visas i kalendern. */
+  datesISO: string[];
 };
 
 export type ArtSummary9001 = {
@@ -1179,6 +1181,7 @@ export function summarizePayslipArtGroups(
   // 2101: Maskinskötseltillägg → antal rader + summera SEK (oftast sista talet på raden i era exempel)
   if (art2101Group?.rows?.length) {
     let sekTotal = 0;
+    const dates = new Set<string>();
 
     for (const row of art2101Group.rows) {
       const parsed = parseArtRow(row);
@@ -1188,12 +1191,19 @@ export function summarizePayslipArtGroups(
         ? parsed.numbers[parsed.numbers.length - 1]
         : undefined;
       if (typeof last === 'number') sekTotal += last;
+
+      if (parsed.dateFrom && parsed.dateTo) {
+        for (const d of expandISODateRange(parsed.dateFrom, parsed.dateTo)) {
+          dates.add(d);
+        }
+      }
     }
 
     overview.art2101 = {
       art: '2101',
       rowsCount: art2101Group.rows.length,
       sekTotal,
+      datesISO: Array.from(dates).sort(),
     };
   }
 
