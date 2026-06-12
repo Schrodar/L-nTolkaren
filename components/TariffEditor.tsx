@@ -46,7 +46,6 @@ function formatMoney(value: number) {
 
 export function TariffEditor() {
   const {
-    selectedCalendarYear,
     groundSalarySelection,
     setGroundSalarySelection,
     selectedTariffDate,
@@ -70,8 +69,7 @@ export function TariffEditor() {
         <div>
           <h2 className="text-xl font-semibold tracking-[-0.02em]">Löneinställningar</h2>
           <p className="mt-1 text-sm text-[#F5F7FF]/70">
-            Tariff väljs automatiskt utifrån kalenderår {selectedCalendarYear}:{' '}
-            {selectedTariffDate}.
+            Sparas automatiskt i din webbläsare.
           </p>
         </div>
 

@@ -16,6 +16,8 @@ type DayModalProps = {
   onManualHoursChange: (hours: number) => void;
   overtime: number;
   onOvertimeChange: (hours: number) => void;
+  maskin: boolean;
+  onMaskinChange: (on: boolean) => void;
   onClose: () => void;
 };
 
@@ -25,7 +27,7 @@ function formatHHMM(hours: number): string {
   return `${h}:${m.toString().padStart(2, '0')}`;
 }
 
-export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHours, onManualHoursChange, overtime, onOvertimeChange, onClose }: DayModalProps) {
+export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHours, onManualHoursChange, overtime, onOvertimeChange, maskin, onMaskinChange, onClose }: DayModalProps) {
   React.useEffect(() => {
     if (!isOpen) return;
     const previousOverflow = document.body.style.overflow;
@@ -69,6 +71,23 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
   }
   const shifts = resolvedDay?.shifts ?? [];
   const isException = resolvedDay?.flags?.includes('undantag');
+
+  const maskinRow = (
+    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3">
+      <div>
+        <div className="text-sm font-semibold text-cyan-300">Maskinskötseltillägg</div>
+        <div className="mt-0.5 text-xs text-white/40">
+          markeras automatiskt om dagen finns på lönespecen
+        </div>
+      </div>
+      <input
+        type="checkbox"
+        checked={maskin}
+        onChange={(e) => onMaskinChange(e.target.checked)}
+        className="h-5 w-5 accent-cyan-400"
+      />
+    </label>
+  );
 
   return (
     <div
@@ -123,6 +142,7 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
                 <span className="text-sm text-green-300">h</span>
               </div>
             </div>
+            {maskinRow}
           </div>
         ) : (
           <div className="mt-4 space-y-3">
@@ -209,6 +229,8 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
                 <span className={`text-sm ${otColor}`}>h</span>
               </div>
             </div>
+
+            {maskinRow}
           </div>
         )}
 

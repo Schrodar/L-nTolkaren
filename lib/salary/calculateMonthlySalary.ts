@@ -254,9 +254,12 @@ export function calculateMonthlySalary(input: SalaryInput): SalaryBreakdown {
   const overtimeWeekday = overtimeWeekdayHours * otWeekdayRate;
   const overtimeWeekend = overtimeWeekendHours * otWeekendRate;
 
-  const engineAttendant = activeAllowances.has('maskinskots')
-    ? totalEngineAttendantDays * allowanceAmounts['maskinskots']
-    : 0;
+  // Dagnivån avgör vilka dagar som ger maskinskötseltillägg —
+  // anroparen sätter engineAttendantDays utifrån inställningen eller
+  // specens/manuellt markerade maskindagar (kan gälla utan att
+  // tillägget är aktiverat i Löneinställningar).
+  const engineAttendant =
+    totalEngineAttendantDays * allowanceAmounts['maskinskots'];
   const rederiAllowance = activeAllowances.has('rederi')
     ? allowanceAmounts['rederi']
     : 0;

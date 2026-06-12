@@ -4,7 +4,6 @@ import Link from 'next/link';
 import * as React from 'react';
 
 import { AoUpload } from '@/components/AoUpload';
-import { LoneberakningProvider } from '@/components/LoneberakningContext';
 import { TariffEditor } from '@/components/TariffEditor';
 import { WorkCalendar } from '@/components/WorkCalendar';
 
@@ -50,8 +49,9 @@ function LoneberakningPageInner() {
           </nav>
         </header>
 
-        <LoneberakningProvider>
-          <div className="space-y-6">
+        {/* AppProvider ligger i layout.tsx — en enda instans för hela sajten,
+            så att Löneinställningar delas och persisteras konsekvent. */}
+        <div className="space-y-6">
             <AoUpload onUploaded={() => setUploadKey((k) => k + 1)} />
 
             <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
@@ -76,8 +76,7 @@ function LoneberakningPageInner() {
 
             <TariffEditor />
             <WorkCalendar refreshKey={uploadKey} />
-          </div>
-        </LoneberakningProvider>
+        </div>
       </div>
     </div>
   );
