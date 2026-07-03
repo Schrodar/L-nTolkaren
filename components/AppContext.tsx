@@ -114,7 +114,13 @@ function deleteLS(key: string): void {
 // ── Inställningar-typ (sparas i localStorage) ────────────────────────────────
 
 type PersistedSettings = {
-  selectedCalendarYear: number;
+  /**
+   * Historisk kvarleva — året återställs INTE längre vid sidladdning.
+   * Kalendern ska alltid öppna på innevarande kalenderår; sparade år
+   * (t.ex. 2024) gjorde att användare hamnade fel och inte hittade
+   * sina lönespecar. Fältet ignoreras vid läsning.
+   */
+  selectedCalendarYear?: number;
   groundSalarySelection: GroundSalarySelection;
   activeAllowances: AllowanceKey[];
   allowanceAmounts: AllowanceAmounts;
@@ -185,7 +191,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     const s = readLS<PersistedSettings | null>(LS_SETTINGS, null);
     if (s) {
-      if (s.selectedCalendarYear != null) setSelectedCalendarYearState(s.selectedCalendarYear);
+      // OBS: selectedCalendarYear återställs medvetet INTE — kalendern
+      // ska alltid öppna på innevarande år (användaren kan byta manuellt).
       if (s.groundSalarySelection) setGroundSalarySelectionState(s.groundSalarySelection);
       if (s.activeAllowances) setActiveAllowances(new Set(s.activeAllowances));
       if (s.allowanceAmounts) setAllowanceAmounts(s.allowanceAmounts);
@@ -193,17 +200,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHydrated(true);
   }, []);
 
-  // Spara inställningar till localStorage när de ändras (efter hydration)
+  // Spara inställningar till localStorage när de ändras (efter hydration).
+  // Kalenderåret sparas inte — det ska alltid följa dagens datum vid start.
   React.useEffect(() => {
     if (!hydrated) return;
     const settings: PersistedSettings = {
-      selectedCalendarYear,
       groundSalarySelection,
       activeAllowances: Array.from(activeAllowances),
       allowanceAmounts,
     };
     writeLS(LS_SETTINGS, settings);
-  }, [hydrated, selectedCalendarYear, groundSalarySelection, activeAllowances, allowanceAmounts]);
+  }, [hydrated, groundSalarySelection, activeAllowances, allowanceAmounts]);
 
   // ── Inställnings-setters ────────────────────────────────────────────────────
 

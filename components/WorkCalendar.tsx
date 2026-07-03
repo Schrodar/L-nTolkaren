@@ -863,6 +863,15 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         const deviation = payslipDeviations[dateISO];
                         const confirmed = payslipConfirmed[dateISO];
 
+                        // Bokförd tid (inskriven av kontoret) stämmer med
+                        // avtalstiden → lila bock. Samma delmängdsmatchning
+                        // som för lönespecen (hanterar på/avmönstring).
+                        const bokfHours = manualHoursByDate[dateISO] ?? 0;
+                        const bokfMatch =
+                          bokfHours > 0 &&
+                          shiftHours.length > 0 &&
+                          findMatchingShifts(shiftHours, bokfHours) !== null;
+
                         const cellBg = isToday
                           ? 'bg-white/15'
                           : holidayInfo?.holidayType === 'storhelg'
@@ -936,6 +945,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               )}
                               {confirmed && (
                                 <span className="rounded bg-green-500/25 px-1 text-[10px] leading-tight text-green-300" title="Lönespec stämmer med AO-schemat.">✓</span>
+                              )}
+                              {bokfMatch && !confirmed && (
+                                <span className="rounded bg-purple-500/25 px-1 text-[10px] leading-tight text-purple-300" title="Bokförd tid stämmer med AO-schemat.">✓</span>
                               )}
                               {holidayInfo?.holidayType === 'storhelg' && (
                                 <span className="rounded bg-red-500/30 px-1 text-[9px] leading-tight text-red-200" title="Storhelg — OB hela dygnet (påsk, pingst, midsommar, jul, nyår). Övertid räknas som kvalificerad (månadslön ÷ 72).">OB</span>
