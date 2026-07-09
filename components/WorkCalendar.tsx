@@ -150,6 +150,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const [manualActiveDates, setManualActiveDates] = React.useState<Set<string>>(new Set());
   // datum med maskinskötseltillägg (art2101 från lönespec)
   const [maskinByDate, setMaskinByDate] = React.useState<Set<string>>(new Set());
+  // plustid per datum (art483 — tid över årsarbetstidstaket; ordinarie tid
+  // klipps på specen den dagen, verklig arbetstid = art315 + art483)
+  const [plusByDate, setPlusByDate] = React.useState<Record<string, number>>({});
 
 
 
@@ -271,6 +274,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setSemesterByDate(saved.semesterByDate ?? {});
     setManualActiveDates(new Set(saved.manualActiveDates ?? []));
     setMaskinByDate(new Set(saved.maskinDates ?? []));
+    setPlusByDate(saved.plusByDate ?? {});
     setKompPayout(saved.kompPayout ?? false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthISO]);
@@ -284,6 +288,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         Object.keys(semesterByDate).length === 0 &&
         manualActiveDates.size === 0 &&
         maskinByDate.size === 0 &&
+        Object.keys(plusByDate).length === 0 &&
         kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
     saveMonth({
       monthISO,
@@ -299,9 +304,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       semesterByDate,
       manualActiveDates: Array.from(manualActiveDates),
       maskinDates: Array.from(maskinByDate),
+      plusByDate,
       savedAt: new Date().toISOString(),
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, saveMonth]);
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -573,6 +579,13 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       ...(ov.art81001?.datesISO ?? []),
     ]);
 
+    // Plustid (art483): när årsarbetstidstaket (5 × månadens dagar) nås
+    // klipps ordinarie tid (art315) den dagen och resten bokförs som plustid.
+    // Verklig arbetstid för dagen = art315 + art483 — det är den summan som
+    // ska jämföras mot AO.
+    const newPlus = ov.art483?.hoursByDateISO ?? {};
+    setPlusByDate(newPlus);
+
     // Ordinarie tid (art315)
     if (ov.art315?.hoursByDateISO) {
       const newManual = { ...semManual };
@@ -581,6 +594,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       for (const [iso, hours] of Object.entries(ov.art315.hoursByDateISO)) {
         if (semesterDates.has(iso)) continue;
         if (vabDates.has(iso)) continue;
+
+        // Lägg tillbaka ev. klippt plustid så dagen jämförs mot hela arbetstiden
+        const totalWorked = hours + (newPlus[iso] ?? 0);
+
         if (aoSheet) {
           const resolved = resolveAoDay(aoSheet, selectedMode, iso);
           const aoHours = calcTidEnlKollAvtHours(resolved) ?? 0;
@@ -589,7 +606,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           // Lönespecens timmar är summan per dag. Vid på/avmönstring har AO
           // två pass samma dag — specen kan motsvara ena passet, andra passet
           // eller båda. Hitta den delmängd av passen vars summa stämmer.
-          const matchedShifts = findMatchingShifts(perShift, hours);
+          const matchedShifts = findMatchingShifts(perShift, totalWorked);
 
           if (matchedShifts) {
             for (const i of matchedShifts) {
@@ -597,7 +614,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             }
             newConfirmed[iso] = true;
           } else {
-            newDeviations[iso] = { payslipH: hours, aoH: aoHours };
+            newDeviations[iso] = { payslipH: totalWorked, aoH: aoHours };
             if (perShift.length > 0) {
               newActiveShifts.add(shiftKey(iso, 0));
             }
@@ -608,8 +625,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           newManualActive.delete(iso);
         } else {
           // Inget AO — skriv in som bokförd tid och aktivera dagen
-          if (hours > 0) {
-            newManual[iso] = hours;
+          if (totalWorked > 0) {
+            newManual[iso] = totalWorked;
             newManualActive.add(iso);
           }
         }
@@ -923,7 +940,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                             ].join(' ')}
                             title={
                               deviation
-                                ? `Lönespec: ${fmtPayslipHours(deviation.payslipH)} h, AO: ${fmtPayslipHours(deviation.aoH)} h`
+                                ? `Lönespec: ${fmtPayslipHours(deviation.payslipH)} h${
+                                    (plusByDate[dateISO] ?? 0) > 0
+                                      ? ` (${fmtPayslipHours(deviation.payslipH - plusByDate[dateISO])} + ${fmtPayslipHours(plusByDate[dateISO])} plustid)`
+                                      : ''
+                                  }, AO: ${fmtPayslipHours(deviation.aoH)} h`
                                 : confirmed
                                 ? 'Lönespec stämmer med AO-schemat'
                                 : undefined
@@ -994,6 +1015,15 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                             {deviation && !semesterByDate[dateISO] && (
                               <span className="text-[11px] font-semibold leading-none text-red-400">
                                 {fmtPayslipHours(deviation.payslipH)} h löns.
+                              </span>
+                            )}
+                            {(plusByDate[dateISO] ?? 0) > 0 && (
+                              <span
+                                className="mt-0.5 block text-[11px] font-semibold leading-none text-lime-300/90"
+                                title="Plustid (art483) — tid över årsarbetstidstaket. Ordinarie tid klipptes på lönespecen denna dag; jämförelsen mot AO använder ordinarie tid + plustid."
+                              >
+                                +{fmtPayslipHours(plusByDate[dateISO])} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">plustid</span>
                               </span>
                             )}
                             {semesterByDate[dateISO] && (

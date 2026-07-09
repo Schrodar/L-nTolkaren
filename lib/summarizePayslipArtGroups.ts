@@ -75,6 +75,20 @@ export type ArtSummary2101 = {
   datesISO: string[];
 };
 
+/**
+ * 483 "Årsarbetstid SEKO, plustid" — tid över årsarbetstidstaket
+ * (5 × månadens dagar). När taket nås klipps ordinarie tid (art315) på den
+ * dagen och resten hamnar här. Verklig arbetstid för dagen = art315 + art483.
+ */
+export type ArtSummary483 = {
+  art: '483';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+  hoursByDateISO: Record<string, number>;
+};
+
 export type ArtSummary9001 = {
   art: '9001';
   rowsCount: number;
@@ -237,6 +251,7 @@ export type PayslipArtOverview = {
   art81001?: ArtSummary81001;
   art80001?: ArtSummary80001;
   art2101?: ArtSummary2101;
+  art483?: ArtSummary483;
   art9001?: ArtSummary9001;
   art9002?: ArtSummary9002;
   art0641?: ArtSummary0641;
@@ -865,6 +880,7 @@ export function summarizePayslipArtGroups(
   const art80001Group = artGroups.find((g) => g.art === '80001');
   const art320Group = artGroups.find((g) => g.art === '320');
   const art2101Group = artGroups.find((g) => g.art === '2101');
+  const art483Group = artGroups.find((g) => g.art === '483');
   const art9001Group = artGroups.find((g) => g.art === '9001');
   const art9002Group = artGroups.find((g) => g.art === '9002');
   const art0641Group = artGroups.find((g) => g.art === '0641');
@@ -980,6 +996,45 @@ export function summarizePayslipArtGroups(
       minutesByDateISO,
       hoursByDateISO: hoursByDateISO311,
     };
+  }
+
+  // 483: Årsarbetstid SEKO, plustid — tid över årsarbetstidstaket. Ordinarie
+  // tid (315) klipps den dagen; verklig arbetstid = 315 + 483 per datum.
+  // Radformat som 311: timmar = första siffran efter datumintervallet.
+  if (art483Group?.rows?.length) {
+    let hoursTotal = 0;
+    const dates = new Set<string>();
+    const hoursByDateISO: Record<string, number> = {};
+
+    for (const row of art483Group.rows) {
+      const parsed = parseArtRow(row);
+      if (!parsed?.dateFrom || !parsed.dateTo) continue;
+
+      const hours = parse311HoursFromRawRow(row);
+      if (typeof hours !== 'number' || hours <= 0) continue;
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      hoursTotal += hours;
+      const perDay = hours / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + perDay;
+      }
+    }
+
+    if (dates.size > 0) {
+      const datesISO = Array.from(dates).sort();
+      overview.art483 = {
+        art: '483',
+        rowsCount: art483Group.rows.length,
+        datesISO,
+        monthISO: pickBestMonthISO(datesISO),
+        hoursTotal,
+        hoursByDateISO,
+      };
+    }
   }
 
   // 301: Övertid (utbetald) – timmar = första siffran efter datumintervallet.
