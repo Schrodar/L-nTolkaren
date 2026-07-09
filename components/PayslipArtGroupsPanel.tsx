@@ -1069,6 +1069,10 @@ export function PayslipArtGroupsPanel({
 
   const art81001 = overview.art81001;
   const artK315 = overview.artK315;
+  const art483 = overview.art483;
+  const art483TotalMinutes = art483 ? Math.round(art483.hoursTotal * 60) : 0;
+  const art483Hours = Math.floor(art483TotalMinutes / 60);
+  const art483Minutes = Math.abs(art483TotalMinutes % 60);
 
   const moneyOverview = React.useMemo(() => {
     const items: Array<{ label: string; amount: number; count?: number }> = [];
@@ -1393,6 +1397,23 @@ export function PayslipArtGroupsPanel({
                       : '–'}
                   </div>
                 </div>
+
+                {art483 && (
+                  <>
+                    <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-gray-600">Plustid (483)</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {formatInt(art483Hours)} h {formatInt(art483Minutes)} min
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      Plustid = arbetad tid över årsarbetstidstaket (5 h ×
+                      månadens dagar). Ordinarie tid (315) klipps den dagen
+                      taket nås — verklig arbetstid är 315 + 483.
+                    </div>
+                  </>
+                )}
 
                 <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
 
