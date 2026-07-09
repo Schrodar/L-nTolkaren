@@ -168,6 +168,13 @@ export function saveLocalAoSheets(
   const savedAt = new Date().toISOString();
   for (const { slug, sheet } of entries) {
     if (!slug) continue;
+    // Blad utan arbetstider sparas inte — de kan aldrig visas i kalendern
+    // och skulle annars ersätta en befintlig utgåva med tomhet (t.ex. en
+    // café-AO där båten saknar cafétider skulle radera däck-tiderna).
+    const hasWork = sheet.blocks?.some(
+      (b) => Array.isArray(b.weeklySchedule) && b.weeklySchedule.some((r) => r.workStart)
+    );
+    if (!hasWork) continue;
     const newPeriods = sheetPeriods(sheet);
     const existing = store[slug] ?? [];
     const kept =

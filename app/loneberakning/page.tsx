@@ -71,6 +71,20 @@ function LoneberakningPageInner() {
                 >
                   Senaste AO Vår/Höst 2026
                 </a>
+                <a
+                  href="/AO_Sommar_2026_DÄCK_260703.xlsx"
+                  download
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15 transition-colors"
+                >
+                  Senaste AO Sommar 2026 — Däck
+                </a>
+                <a
+                  href="/AO_Sommar_2026_CAFÉ_260706.xlsx"
+                  download
+                  className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15 transition-colors"
+                >
+                  Senaste AO Sommar 2026 — Café
+                </a>
               </div>
             </section>
 

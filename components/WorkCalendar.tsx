@@ -47,6 +47,21 @@ function fmtPayslipHours(value: number): string {
 }
 
 /**
+ * Kort befattningsetikett från AO:ns "Befattning"-rad, t.ex. "Matros/jungman"
+ * → Däck, "Buffist" → Café. Viktig när både däck- och café-AO finns för
+ * samma båt och period — visar vilken variant som är aktiv.
+ */
+function roleLabel(roles: string | null): string | null {
+  if (!roles) return null;
+  const lower = roles.toLowerCase();
+  // Däck-orden kollas först — kombinerade befattningar som
+  // "Matros/jungman/jungman-cafe" är däcks-AO, inte café.
+  if (lower.includes('matros') || lower.includes('jungman') || lower.includes('däck')) return 'Däck';
+  if (lower.includes('buffist') || lower.includes('kafé') || lower.includes('cafe')) return 'Café';
+  return null;
+}
+
+/**
  * Hittar den delmängd av dagens AO-pass vars summerade timmar matchar
  * lönespecens timmar för dagen. Delmängder med färre pass prövas först så
  * att ett ensamt pass vinner över kombinationer.
@@ -774,6 +789,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           {aoSheet && (
             <span className="ml-3 text-white/40">
               AO: {aoSheet.vesselName ?? aoSheet.sheetName}
+              {roleLabel(aoSheet.roles) ? ` (${roleLabel(aoSheet.roles)})` : ''}
               {aoSheet.validFrom && aoSheet.validTo
                 ? ` · ${aoSheet.validFrom} – ${aoSheet.validTo}`
                 : ''}
