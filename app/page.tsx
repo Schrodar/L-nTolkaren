@@ -217,6 +217,18 @@ export default function Page() {
               eller felaktigheter.
             </p>
           </div>
+
+          {/* Hjälpruta */}
+          <div className="max-w-xl rounded-2xl border border-sky-400/30 bg-sky-500/10 px-5 py-4">
+            <p className="text-sm font-semibold text-sky-300">Behöver du hjälp?</p>
+            <p className="mt-1 text-sm leading-relaxed text-[#F5F7FF]/80">
+              Ring{' '}
+              <a href="tel:0707501272" className="font-semibold text-sky-300 underline underline-offset-2 hover:text-sky-200">
+                070-750 12 72
+              </a>{' '}
+              för guidning om något är oklart.
+            </p>
+          </div>
         </section>
 
         {/* Right: Dropzone */}
