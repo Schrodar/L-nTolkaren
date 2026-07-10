@@ -617,16 +617,16 @@ export default function AoImportPage() {
               Löneberäkning
             </Link>
             <Link
-              href="/loneberakning/ao"
-              className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
-            >
-              AO-import
-            </Link>
-            <Link
-              href="/faq"
+              href="/loneberakning/hantera"
               className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
             >
-              Hjälp
+              Hantera
+            </Link>
+            <Link
+              href="/guide"
+              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+            >
+              Kom igång
             </Link>
           </nav>
         </header>

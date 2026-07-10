@@ -33,10 +33,16 @@ export default function HanteraPage() {
               Löneberäkning
             </Link>
             <Link
-              href="/faq"
+              href="/loneberakning/hantera"
+              className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
+            >
+              Hantera
+            </Link>
+            <Link
+              href="/guide"
               className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
             >
-              Hjälp
+              Kom igång
             </Link>
           </nav>
         </header>
