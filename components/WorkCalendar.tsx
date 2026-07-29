@@ -22,7 +22,13 @@ import {
   normalizeDateISO,
 } from '@/lib/calendar/helpers';
 import { resolveAoDay, calcTidEnlKollAvtHours, calcTidEnlPerShift } from '@/lib/ao/resolveAoDay';
-import { getLocalAoSheetForMonth, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import { getLocalAoSheets, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import {
+  editionStartsInMonth,
+  editionsForMonth,
+  periodLabel,
+  pickEditionForDate,
+} from '@/lib/ao/editions';
 import { getHolidayInfo, getEffectiveAoDayType } from '@/lib/ao/holidayRules';
 import { calculateMonthlySalary } from '@/lib/salary/calculateMonthlySalary';
 import type { DaySalaryInput } from '@/lib/salary/calculateMonthlySalary';
@@ -116,7 +122,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
 
   // ���� Laddat AO-blad ����������������������������������������������������������������������������������������������������������������
-  const [aoSheet, setAoSheet] = React.useState<ParsedAoSheet | null>(null);
+  // Flera säsonger kan gälla samtidigt (vinter, vår/höst, sommar) — utgåva
+  // väljs per dag, se lib/ao/editions.ts.
+  const [aoSheets, setAoSheets] = React.useState<ParsedAoSheet[]>([]);
   const [loadingSheet, setLoadingSheet] = React.useState(false);
 
   const [selectedDateISO, setSelectedDateISO] = React.useState<string | null>(null);
@@ -196,19 +204,15 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     let canceled = false;
 
     if (!selectedBoat) {
-      setAoSheet(null);
+      setAoSheets([]);
       return;
     }
 
-    // Lokalt sparad AO har företräde — serverns lagring är efemär på Netlify.
-    // En båt kan ha flera AO-utgåvor (vinter, vår/höst) — välj den vars
-    // giltighetsperioder täcker den visade månaden.
-    const localSheet = getLocalAoSheetForMonth(
-      selectedBoat,
-      format(currentMonth, 'yyyy-MM'),
-    );
-    if (localSheet) {
-      setAoSheet(localSheet);
+    // Lokalt sparade AO:n har företräde — serverns lagring är efemär på
+    // Netlify. Alla utgåvor för båten laddas; rätt utgåva väljs sedan per dag.
+    const localSheets = getLocalAoSheets(selectedBoat);
+    if (localSheets.length > 0) {
+      setAoSheets(localSheets);
       setLoadingSheet(false);
       return;
     }
@@ -219,24 +223,17 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       .then((r) => r.json())
       .then((data: { success: boolean; sheet?: ParsedAoSheet }) => {
         if (canceled) return;
-        setAoSheet(data.success && data.sheet ? data.sheet : null);
+        setAoSheets(data.success && data.sheet ? [data.sheet] : []);
       })
       .catch(() => {
-        if (!canceled) setAoSheet(null);
+        if (!canceled) setAoSheets([]);
       })
       .finally(() => {
         if (!canceled) setLoadingSheet(false);
       });
 
     return () => { canceled = true; };
-  }, [selectedBoat, currentMonth, boatListKey, refreshKey]);
-
-  // Återställ till isfri automatiskt om AO-filen saknar is-variant (sommarsäsong)
-  React.useEffect(() => {
-    if (aoSheet && !aoSheet.hasIsVariant) {
-      setSelectedMode('isfri');
-    }
-  }, [aoSheet]);
+  }, [selectedBoat, boatListKey, refreshKey]);
 
   const showToast = React.useCallback((message: string, durationMs = 2500) => {
     setToastMessage(message);
@@ -257,6 +254,49 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   const monthLabel = capitalizeFirst(format(currentMonth, 'LLLL', { locale: sv }));
   const monthISO = format(currentMonth, 'yyyy-MM');
   const selectedTariffYear = selectedTariffDate.slice(0, 4);
+
+  // AO-utgåvor som berör den visade månaden (kan vara flera vid säsongsbyte)
+  const monthEditions = React.useMemo(
+    () => editionsForMonth(aoSheets, monthISO),
+    [aoSheets, monthISO],
+  );
+
+  // Dagar där en ny utgåva börjar gälla — underlag för "Ny AO"-noteringen
+  const editionStarts = React.useMemo(
+    () => editionStartsInMonth(aoSheets, monthISO),
+    [aoSheets, monthISO],
+  );
+
+  const monthHasIsVariant = monthEditions.some((s) => s.hasIsVariant);
+
+  // AO-raden ovanför kalendern visar utgåvan som gäller månadens första dag
+  const headerEdition =
+    pickEditionForDate(aoSheets, `${monthISO}-01`) ?? monthEditions[0] ?? null;
+
+  /**
+   * Löser en dag mot den AO-utgåva som gäller just det datumet.
+   * Utgåvor utan is-variant körs alltid som "isfri" — annars skulle deras
+   * dagar bli tomma när användaren valt is-läge för en annan utgåva i
+   * samma månad (t.ex. vår/höst 1–11 dec + vinter från 13 dec).
+   */
+  const resolveDay = React.useCallback(
+    (dateISO: string): ResolvedDaySchedule => {
+      const sheet = pickEditionForDate(aoSheets, dateISO);
+      if (!sheet) {
+        return { dateISO, shifts: [], isStandard: true, notes: [], flags: [] };
+      }
+      const mode = sheet.hasIsVariant ? selectedMode : 'isfri';
+      return resolveAoDay(sheet, mode, dateISO);
+    },
+    [aoSheets, selectedMode],
+  );
+
+  // Återställ till isfri automatiskt om ingen utgåva i månaden har is-variant
+  React.useEffect(() => {
+    if (monthEditions.length > 0 && !monthHasIsVariant) {
+      setSelectedMode('isfri');
+    }
+  }, [monthEditions.length, monthHasIsVariant]);
 
   // Auto-ladda månadsdata när månaden ändras
   React.useEffect(() => {
@@ -315,7 +355,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   );
 
   const totalActiveHours = React.useMemo(() => {
-    if (!aoSheet || activeShifts.size === 0) return 0;
+    if (aoSheets.length === 0 || activeShifts.size === 0) return 0;
     let total = 0;
     const hoursByDate = new Map<string, number[]>();
     for (const key of activeShifts) {
@@ -323,12 +363,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       const iso = key.slice(0, sepIdx);
       const idx = Number(key.slice(sepIdx + 2));
       if (!hoursByDate.has(iso)) {
-        hoursByDate.set(iso, calcTidEnlPerShift(resolveAoDay(aoSheet, selectedMode, iso)));
+        hoursByDate.set(iso, calcTidEnlPerShift(resolveDay(iso)));
       }
       total += hoursByDate.get(iso)![idx] ?? 0;
     }
     return total;
-  }, [activeShifts, aoSheet, selectedMode]);
+  }, [activeShifts, aoSheets, resolveDay]);
 
   // Beräkna lön automatiskt från tariffen
   const salaryBreakdown = React.useMemo(() => {
@@ -348,11 +388,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       const sepIdx = key.lastIndexOf('::');
       const iso = key.slice(0, sepIdx);
       const shiftIdx = Number(key.slice(sepIdx + 2));
-      const resolved = aoSheet ? resolveAoDay(aoSheet, selectedMode, iso) : null;
-      const aoHrs = resolved ? (calcTidEnlPerShift(resolved)[shiftIdx] ?? 0) : 0;
+      const resolved = resolveDay(iso);
+      const aoHrs = calcTidEnlPerShift(resolved)[shiftIdx] ?? 0;
 
       // Hämta klockslag för detta pass för exakt OB-beräkning
-      const shiftData = resolved?.shifts[shiftIdx];
+      const shiftData = resolved.shifts[shiftIdx];
       const shiftSpan = shiftData?.work?.start && shiftData?.work?.end
         ? { start: shiftData.work.start, end: shiftData.work.end }
         : null;
@@ -431,12 +471,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       activeAllowances,
       allowanceAmounts,
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, manualActiveDates, maskinByDate, aoSheet, selectedMode,
+  }, [activeShifts, manualHoursByDate, overtimeByDate, manualActiveDates, maskinByDate, resolveDay,
       selectedTariff, groundSalarySelection, activeAllowances, allowanceAmounts]);
 
   function resolveForDate(dateISO: string): ResolvedDaySchedule {
-    if (aoSheet) return resolveAoDay(aoSheet, selectedMode, dateISO);
-    return { dateISO, shifts: [], isStandard: true, notes: [], flags: [] };
+    return resolveDay(dateISO);
   }
 
   function shiftKey(dateISO: string, idx: number) {
@@ -456,8 +495,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     const allKeys: string[] = [];
     for (const date of weekDates) {
       const iso = normalizeDateISO(date);
-      const r = aoSheet ? resolveAoDay(aoSheet, selectedMode, iso) : null;
-      if (r && r.shifts.length > 0) {
+      const r = resolveDay(iso);
+      if (r.shifts.length > 0) {
         calcTidEnlPerShift(r).forEach((_, i) => allKeys.push(shiftKey(iso, i)));
       }
     }
@@ -540,21 +579,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setPayslipDeviations({});
     setPayslipConfirmed({});
 
-    if (aoSheet && currentPayslip) {
+    if (aoSheets.length > 0 && monthEditions.length === 0 && currentPayslip) {
       const [y, m] = monthISO.split('-');
-      const monthStart = `${monthISO}-01`;
-      const monthEnd = `${y}-${m}-${new Date(Number(y), Number(m), 0).getDate().toString().padStart(2, '0')}`;
-      const covers = aoSheet.validPeriods.some(
-        (p) => p.from <= monthEnd && p.to >= monthStart
-      );
-      if (!covers) {
-        const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
-        const rangeLabel = aoSheet.validPeriods.map((p) => `${p.from}–${p.to}`).join(', ');
-        showToast(`Det aktiva AO-schemat gäller ${rangeLabel} och täcker inte ${monthName}.`, 5000);
-      }
+      const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+      const rangeLabel = aoSheets.map((s) => periodLabel(s)).join(', ');
+      showToast(`De uppladdade AO-schemana gäller ${rangeLabel} och täcker inte ${monthName}.`, 5000);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aoSheet]);
+  }, [aoSheets]);
 
   function importPayslip() {
     const ps = loadPayslip(monthISO);
@@ -598,8 +630,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         // Lägg tillbaka ev. klippt plustid så dagen jämförs mot hela arbetstiden
         const totalWorked = hours + (newPlus[iso] ?? 0);
 
-        if (aoSheet) {
-          const resolved = resolveAoDay(aoSheet, selectedMode, iso);
+        // Utgåva per dag — en spec kan spänna över ett säsongsbyte
+        if (pickEditionForDate(aoSheets, iso)) {
+          const resolved = resolveDay(iso);
           const aoHours = calcTidEnlKollAvtHours(resolved) ?? 0;
           const perShift = calcTidEnlPerShift(resolved);
 
@@ -624,7 +657,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           delete newManual[iso];
           newManualActive.delete(iso);
         } else {
-          // Inget AO — skriv in som bokförd tid och aktivera dagen
+          // Ingen AO-utgåva täcker dagen (t.ex. glapp mellan säsonger) —
+          // skriv in som bokförd tid och aktivera dagen
           if (totalWorked > 0) {
             newManual[iso] = totalWorked;
             newManualActive.add(iso);
@@ -691,7 +725,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
 
     // AO saknas varning
-    if (!aoSheet) {
+    if (monthEditions.length === 0) {
       showToast(`Inget AO-schema är laddat för ${monthLabel}. Ladda upp AO för perioden om du vill jämföra mot schema.`);
     }
 
@@ -701,25 +735,19 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   }
 
   function loadAndSetPayslip(ps: import('@/components/AppContext').SavedPayslip) {
-    if (!aoSheet) {
-      setCurrentPayslip(ps);
-      const [y, m] = monthISO.split('-');
-      const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+    setCurrentPayslip(ps);
+    if (monthEditions.length > 0) return;
+
+    const [y, m] = monthISO.split('-');
+    const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
+
+    if (aoSheets.length === 0) {
       showToast(`Lönespec laddad${ps.employeeName ? ` för ${ps.employeeName}` : ''}. Inget AO-schema är aktivt för ${monthName} — ladda upp AO för perioden om du vill jämföra mot schema.`, 5000);
       return;
     }
-    const [y, m] = monthISO.split('-');
-    const monthStart = `${monthISO}-01`;
-    const monthEnd = `${y}-${m}-${new Date(Number(y), Number(m), 0).getDate().toString().padStart(2, '0')}`;
-    const covers = aoSheet.validPeriods.some(
-      (p) => p.from <= monthEnd && p.to >= monthStart
-    );
-    setCurrentPayslip(ps);
-    if (!covers) {
-      const monthName = new Date(Number(y), Number(m) - 1).toLocaleString('sv-SE', { month: 'long' });
-      const rangeLabel = aoSheet.validPeriods.map((p) => `${p.from}–${p.to}`).join(', ');
-      showToast(`Lönespec laddad. Det aktiva AO-schemat gäller ${rangeLabel} och täcker inte ${monthName}.`, 5000);
-    }
+
+    const rangeLabel = aoSheets.map((s) => periodLabel(s)).join(', ');
+    showToast(`Lönespec laddad. De uppladdade AO-schemana gäller ${rangeLabel} och täcker inte ${monthName}.`, 5000);
   }
 
   return (
@@ -747,7 +775,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             )}
           </div>
 
-          {aoSheet?.hasIsVariant && (
+          {monthHasIsVariant && (
             <label className="block text-sm text-[#F5F7FF]/90">
               Isläge
               <select
@@ -803,12 +831,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
         <p className="mb-4 text-xs text-[#F5F7FF]/70">
           Aktiv tariff: {selectedTariffYear}
-          {aoSheet && (
+          {headerEdition && (
             <span className="ml-3 text-white/40">
-              AO: {aoSheet.vesselName ?? aoSheet.sheetName}
-              {roleLabel(aoSheet.roles) ? ` (${roleLabel(aoSheet.roles)})` : ''}
-              {aoSheet.validFrom && aoSheet.validTo
-                ? ` · ${aoSheet.validFrom} – ${aoSheet.validTo}`
+              AO: {headerEdition.vesselName ?? headerEdition.sheetName}
+              {roleLabel(headerEdition.roles) ? ` (${roleLabel(headerEdition.roles)})` : ''}
+              {headerEdition.validFrom && headerEdition.validTo
+                ? ` · ${headerEdition.validFrom} – ${headerEdition.validTo}`
                 : ''}
             </span>
           )}
@@ -885,12 +913,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         const isToday = isSameDay(date, today);
                         const dateISO = normalizeDateISO(date);
 
-                        const resolved = aoSheet
-                          ? resolveAoDay(aoSheet, selectedMode, dateISO)
-                          : null;
+                        const resolved = resolveDay(dateISO);
 
-                        const isException = resolved?.flags?.includes('undantag');
-                        const shiftHours = resolved ? calcTidEnlPerShift(resolved) : [];
+                        const isException = resolved.flags?.includes('undantag');
+                        const shiftHours = calcTidEnlPerShift(resolved);
+                        const newEdition = editionStarts[dateISO];
                         const anyActive = shiftHours.some((_, i) => activeShifts.has(shiftKey(dateISO, i))) || manualActiveDates.has(dateISO);
                         const holidayInfo = getHolidayInfo(dateISO);
                         const deviation = payslipDeviations[dateISO];
@@ -997,6 +1024,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               )}
                               {maskinByDate.has(dateISO) && (
                                 <span className="rounded bg-cyan-500/25 px-1 text-[9px] leading-tight text-cyan-200" title="Maskinskötseltillägg utbetalt denna dag enligt lönespecen.">M</span>
+                              )}
+                              {newEdition && (
+                                <span
+                                  className="rounded bg-indigo-500/30 px-1 text-[9px] leading-tight text-indigo-200"
+                                  title={`Ny AO gäller från ${dateISO} — ${newEdition.vesselName ?? newEdition.sheetName} · ${periodLabel(newEdition)}`}
+                                >
+                                  Ny AO
+                                </span>
                               )}
                             </div>
                             {shiftHours.length > 0 && (

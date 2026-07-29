@@ -19,6 +19,7 @@ import type {
   ParsedAoSheet,
   StoredAoSheetMeta,
 } from "@/lib/ao/types";
+import { periodsOverlap, sheetPeriods } from "@/lib/ao/editions";
 
 const STORAGE_KEY = "lonetolkaren.ao.sheets.v2";
 const LEGACY_KEY_V1 = "lonetolkaren.ao.sheets.v1";
@@ -85,24 +86,6 @@ function normalizeSheet(sheet: ParsedAoSheet): ParsedAoSheet {
     if (block.crewIndex === undefined) block.crewIndex = 0;
   }
   return sheet;
-}
-
-function sheetPeriods(sheet: ParsedAoSheet): AoPeriod[] {
-  if (Array.isArray(sheet.validPeriods) && sheet.validPeriods.length > 0) {
-    return sheet.validPeriods;
-  }
-  return sheet.validFrom && sheet.validTo
-    ? [{ from: sheet.validFrom, to: sheet.validTo }]
-    : [];
-}
-
-function periodsOverlap(a: AoPeriod[], b: AoPeriod[]): boolean {
-  for (const pa of a) {
-    for (const pb of b) {
-      if (pa.from <= pb.to && pa.to >= pb.from) return true;
-    }
-  }
-  return false;
 }
 
 /** Bygger listnings-metadata för en båt utifrån ALLA sparade utgåvor. */
@@ -187,28 +170,21 @@ export function saveLocalAoSheets(
 }
 
 /**
- * Hämtar den AO-utgåva för båten vars giltighetsperioder täcker (överlappar)
- * den angivna månaden ("ÅÅÅÅ-MM"). Om ingen täcker månaden returneras den
- * senast sparade utgåvan, så att kalenderns täckningsvarning kan visas.
+ * Alla sparade AO-utgåvor för en båt, sorterade på giltighetsperiodens start.
+ * Kalendern väljer sedan utgåva per dag (se lib/ao/editions.ts) så att flera
+ * säsonger kan mappas ut i samma månad.
  */
-export function getLocalAoSheetForMonth(
-  slug: string,
-  monthISO: string
-): ParsedAoSheet | null {
+export function getLocalAoSheets(slug: string): ParsedAoSheet[] {
   const entries = readStore()[slug];
-  if (!entries || entries.length === 0) return null;
+  if (!entries || entries.length === 0) return [];
 
-  const [y, m] = monthISO.split("-");
-  const monthStart = `${monthISO}-01`;
-  const lastDay = new Date(Number(y), Number(m), 0).getDate();
-  const monthEnd = `${monthISO}-${String(lastDay).padStart(2, "0")}`;
-  const monthPeriod: AoPeriod[] = [{ from: monthStart, to: monthEnd }];
-
-  const sorted = [...entries].sort((a, b) => b.savedAt.localeCompare(a.savedAt));
-  const covering = sorted.find((e) =>
-    periodsOverlap(sheetPeriods(e.sheet), monthPeriod)
-  );
-  return normalizeSheet((covering ?? sorted[0]).sheet);
+  return entries
+    .map((e) => normalizeSheet(e.sheet))
+    .sort((a, b) => {
+      const aStart = sheetPeriods(a)[0]?.from ?? "9999-99-99";
+      const bStart = sheetPeriods(b)[0]?.from ?? "9999-99-99";
+      return aStart.localeCompare(bStart);
+    });
 }
 
 /** Listar en metadata-post per båt (alla utgåvors perioder sammanslagna). */

@@ -139,8 +139,13 @@ export default function GuidePage() {
             Högst upp på samma sida: klicka{' '}
             <strong className="text-[#e8edf8]">Ladda upp AO (Excel)</strong> och välj filen du just
             laddade ner. Alla båtar i AO:n dyker upp i båtlistan. Du kan ha flera AO-utgåvor
-            samtidigt (vinter + vår/höst + sommar) — kalendern väljer automatiskt den som gäller för
-            månaden du tittar på.
+            samtidigt (vinter + vår/höst + sommar) — kalendern byter automatiskt utgåva på rätt
+            datum, även mitt i en månad. Dagen då en ny AO börjar gälla märks med{' '}
+            <span className="rounded bg-indigo-500/30 px-1 text-[0.7rem] text-indigo-200">Ny AO</span>.
+          </p>
+          <p className="text-[0.85rem] text-[#e8edf8]/50">
+            Ladda gärna upp både den säsong som slutar och den som börjar — då blir hela månaden
+            ifylld vid ett säsongsbyte.
           </p>
         </Step>
         <Connector />

@@ -19,7 +19,8 @@ Deployas på **Netlify**. API-routes kör som serverless-funktioner med efemärt
 - `app/page.tsx` — Lönespec-sidan: PDF-tolkning (pdf.js), art-grupper, sparas i localStorage.
 - `app/loneberakning/` — kalender + löneberäkning; `hantera/` (data), `ao/` (AO-import).
 - `components/WorkCalendar.tsx` — kalendern: AO-pass per dag, lönespec-import med automatisk grön/röd-markering (lönespecens art315-timmar matchas mot delmängder av dagens AO-pass — hanterar på/avmönstring med två pass samma dag).
-- `lib/ao/clientStore.ts` — localStorage-lagring av AO (nyckel `lonetolkaren.ao.sheets.v2`). Flera utgåvor per båt (vinter + vår/höst); kalendern väljer utgåva vars `validPeriods` täcker visad månad. Överlappande perioder ersätts vid uppladdning.
+- `lib/ao/clientStore.ts` — localStorage-lagring av AO (nyckel `lonetolkaren.ao.sheets.v2`). Flera utgåvor per båt (vinter + vår/höst + sommar). Överlappande perioder ersätts vid uppladdning.
+- `lib/ao/editions.ts` — väljer AO-utgåva **per dag** (`pickEditionForDate`), inte per månad, så att ett säsongsbyte mitt i månaden (t.ex. vår/höst t.o.m. 14 juni, sommar från 15 juni) mappas ut sömlöst. `editionStartsInMonth` ger dagarna där en ny utgåva börjar gälla → "Ny AO"-notering i kalendern. Utgåvor utan is-variant körs alltid som `isfri`.
 - `lib/ao/parseAoWorkbook.ts` — AO-Excel-parser (block, veckoschema, undantag, is/isfri, vår/höst-perioder).
 - `lib/summarizePayslipArtGroups.ts` — lönespec-arter (315 = ordinarie tid, 301/302 = övertid, 311/312 = komp, 700 = semester, 810 = VAB, 2101 = maskindagar). Art315 summeras per datum.
 
