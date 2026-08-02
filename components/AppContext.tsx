@@ -63,6 +63,9 @@ export type SavedMonth = {
   manualActiveDates?: string[];                   // aktiva dagar utan AO-pass
   maskinDates?: string[];                         // datum med maskinskötseltillägg (art2101)
   plusByDate?: Record<string, number>;            // datum → plustid (art483, tid över årsarbetstidstaket)
+  traktamenteDates?: string[];                    // dagar markerade för obetalt traktamente (övernattning ombord)
+  natthamnByDate?: Record<string, string>;        // datum → natthamn för övernattningen
+  boatByDate?: Record<string, string>;            // datum → båt-slug när dagen avviker från månadens båt
   savedAt: string;                               // ISO-timestamp
 };
 
@@ -125,6 +128,8 @@ type PersistedSettings = {
   groundSalarySelection: GroundSalarySelection;
   activeAllowances: AllowanceKey[];
   allowanceAmounts: AllowanceAmounts;
+  /** Tidigare inskrivna natthamnar — återanvänds som förslag i dagmodalen. */
+  knownNatthamnar?: string[];
 };
 
 // ── Context-värde ─────────────────────────────────────────────────────────────
@@ -141,6 +146,10 @@ type AppContextValue = {
   toggleAllowance: (key: AllowanceKey) => void;
   allowanceAmounts: AllowanceAmounts;
   setAllowanceAmount: (key: AllowanceKey, amount: number) => void;
+
+  // Natthamnar (obetalt traktamente)
+  knownNatthamnar: string[];
+  rememberNatthamn: (name: string) => void;
 
   // Månadsdata
   saveMonth: (month: SavedMonth) => void;
@@ -185,6 +194,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     () => DEFAULT_ALLOWANCE_AMOUNTS
   );
 
+  const [knownNatthamnar, setKnownNatthamnar] = React.useState<string[]>([]);
+
   // Hydration-flagga: förhindrar att spara-effekten skriver defaults till localStorage
   const [hydrated, setHydrated] = React.useState(false);
 
@@ -197,6 +208,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (s.groundSalarySelection) setGroundSalarySelectionState(s.groundSalarySelection);
       if (s.activeAllowances) setActiveAllowances(new Set(s.activeAllowances));
       if (s.allowanceAmounts) setAllowanceAmounts(s.allowanceAmounts);
+      if (s.knownNatthamnar) setKnownNatthamnar(s.knownNatthamnar);
     }
     setHydrated(true);
   }, []);
@@ -209,9 +221,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       groundSalarySelection,
       activeAllowances: Array.from(activeAllowances),
       allowanceAmounts,
+      knownNatthamnar,
     };
     writeLS(LS_SETTINGS, settings);
-  }, [hydrated, groundSalarySelection, activeAllowances, allowanceAmounts]);
+  }, [hydrated, groundSalarySelection, activeAllowances, allowanceAmounts, knownNatthamnar]);
 
   // ── Inställnings-setters ────────────────────────────────────────────────────
 
@@ -234,6 +247,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   function setAllowanceAmount(key: AllowanceKey, amount: number) {
     setAllowanceAmounts((prev) => ({ ...prev, [key]: amount }));
+  }
+
+  /** Sparar en inskriven natthamn så den kan återanvändas; senast använd först. */
+  function rememberNatthamn(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setKnownNatthamnar((prev) => [
+      trimmed,
+      ...prev.filter((h) => h.toLowerCase() !== trimmed.toLowerCase()),
+    ].slice(0, 20));
   }
 
   // ── Månadsdata ──────────────────────────────────────────────────────────────
@@ -336,6 +359,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         toggleAllowance,
         allowanceAmounts,
         setAllowanceAmount,
+        knownNatthamnar,
+        rememberNatthamn,
         saveMonth,
         loadMonth,
         deleteMonth,

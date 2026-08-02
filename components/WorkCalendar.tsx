@@ -23,7 +23,11 @@ import {
 } from '@/lib/calendar/helpers';
 import { resolveAoDay, calcTidEnlKollAvtHours, calcTidEnlPerShift } from '@/lib/ao/resolveAoDay';
 import { getLocalAoSheets, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import { buildTraktamenteRows } from '@/lib/traktamente/buildTraktamenteRows';
+import { downloadTraktamentePdf } from '@/lib/traktamente/traktamentePdf';
+import type { SavedMonth } from '@/components/AppContext';
 import {
+  boatLabel,
   editionStartsInMonth,
   editionsForMonth,
   periodLabel,
@@ -36,6 +40,48 @@ import type { AoMode, ParsedAoSheet, StoredAoSheetMeta } from '@/lib/ao/types';
 import type { BoatOption, ResolvedDaySchedule } from '@/lib/schedule/types';
 
 const WEEKDAY_LABELS = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
+
+/** Stabil referens så att memo-beroenden inte ändras varje rendering. */
+const EMPTY_SHEETS: ParsedAoSheet[] = [];
+
+/** Löser en dag mot rätt utgåva bland en båts AO-blad. */
+function resolveDayFromSheets(
+  sheets: ParsedAoSheet[],
+  mode: AoMode,
+  dateISO: string,
+): ResolvedDaySchedule {
+  const sheet = pickEditionForDate(sheets, dateISO);
+  if (!sheet) return { dateISO, shifts: [], isStandard: true, notes: [], flags: [] };
+  // Utgåvor utan is-variant körs alltid som isfri — annars blir deras dagar
+  // tomma när is-läge valts för en annan utgåva i samma månad.
+  return resolveAoDay(sheet, sheet.hasIsVariant ? mode : 'isfri', dateISO);
+}
+
+/**
+ * Jämför en dags arbetade timmar (lönespec + ev. plustid) mot AO-schemat.
+ * Används både vid lönespec-import och när en dags båt byts, så att samma
+ * regler gäller — bara AO-tiden som jämförs mot skiljer sig.
+ */
+function matchDayAgainstAo(resolved: ResolvedDaySchedule, totalWorked: number) {
+  const perShift = calcTidEnlPerShift(resolved);
+  return {
+    perShift,
+    aoHours: calcTidEnlKollAvtHours(resolved) ?? 0,
+    matched: findMatchingShifts(perShift, totalWorked),
+  };
+}
+
+/** Datumen från och med ett datum till månadens sista dag. */
+function datesToMonthEnd(fromISO: string): string[] {
+  const year = Number(fromISO.slice(0, 4));
+  const month = Number(fromISO.slice(5, 7));
+  const lastDay = new Date(year, month, 0).getDate();
+  const out: string[] = [];
+  for (let d = Number(fromISO.slice(8, 10)); d <= lastDay; d++) {
+    out.push(`${fromISO.slice(0, 8)}${String(d).padStart(2, '0')}`);
+  }
+  return out;
+}
 
 function capitalizeFirst(value: string) {
   if (!value) return value;
@@ -104,7 +150,7 @@ function findMatchingShifts(perShift: number[], payslipHours: number): number[] 
 }
 
 export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
-  const { selectedCalendarYear, setSelectedCalendarYear, selectedTariffDate, activeAllowances, allowanceAmounts, groundSalarySelection, selectedTariff, saveMonth, loadMonth, loadPayslip, listPayslipsForMonth } =
+  const { selectedCalendarYear, setSelectedCalendarYear, selectedTariffDate, activeAllowances, allowanceAmounts, groundSalarySelection, selectedTariff, saveMonth, loadMonth, loadPayslip, listPayslipsForMonth, listSavedMonths, knownNatthamnar, rememberNatthamn } =
     useAppContext();
 
   const [currentMonth, setCurrentMonth] = React.useState(() => {
@@ -123,9 +169,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
   // ���� Laddat AO-blad ����������������������������������������������������������������������������������������������������������������
   // Flera säsonger kan gälla samtidigt (vinter, vår/höst, sommar) — utgåva
-  // väljs per dag, se lib/ao/editions.ts.
-  const [aoSheets, setAoSheets] = React.useState<ParsedAoSheet[]>([]);
+  // väljs per dag, se lib/ao/editions.ts. Kartan rymmer flera båtar eftersom
+  // enskilda dagar kan ha en annan båt än månadens (boatByDate).
+  const [sheetsByBoat, setSheetsByBoat] = React.useState<Record<string, ParsedAoSheet[]>>({});
   const [loadingSheet, setLoadingSheet] = React.useState(false);
+  // båt per dag när dagen avviker från månadens båt
+  const [boatByDate, setBoatByDate] = React.useState<Record<string, string>>({});
 
   const [selectedDateISO, setSelectedDateISO] = React.useState<string | null>(null);
   const [selectedResolvedDay, setSelectedResolvedDay] =
@@ -161,6 +210,13 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   // plustid per datum (art483 — tid över årsarbetstidstaket; ordinarie tid
   // klipps på specen den dagen, verklig arbetstid = art315 + art483)
   const [plusByDate, setPlusByDate] = React.useState<Record<string, number>>({});
+  // obetalt traktamente (övernattning ombord) — markeras manuellt per dag
+  const [traktamenteDates, setTraktamenteDates] = React.useState<Set<string>>(new Set());
+  const [natthamnByDate, setNatthamnByDate] = React.useState<Record<string, string>>({});
+  // Månaden som nuvarande state faktiskt hör till. Sätts när månadsdatan
+  // laddats, så att auto-sparningen inte hinner skriva förra månadens data
+  // på den nya månaden i renderingen då månaden precis bytts.
+  const [loadedMonth, setLoadedMonth] = React.useState('');
 
 
 
@@ -176,11 +232,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     let canceled = false;
 
     const toBoats = (sheets: StoredAoSheetMeta[]): BoatOption[] =>
-      sheets.map((s) => {
-        const raw = s.vesselName ?? s.sheetName;
-        const label = raw.replace(/\s+Reg\..*$/i, '').trim() || raw;
-        return { value: s.slug, label };
-      });
+      sheets.map((s) => ({
+        value: s.slug,
+        label: boatLabel(s.vesselName ?? s.sheetName),
+      }));
 
     // Lokalt sparade AO:n visas direkt; server-listan (lokal dev) mergas in.
     const localSheets = listLocalAoSheets();
@@ -203,16 +258,13 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   React.useEffect(() => {
     let canceled = false;
 
-    if (!selectedBoat) {
-      setAoSheets([]);
-      return;
-    }
+    if (!selectedBoat) return;
 
     // Lokalt sparade AO:n har företräde — serverns lagring är efemär på
     // Netlify. Alla utgåvor för båten laddas; rätt utgåva väljs sedan per dag.
     const localSheets = getLocalAoSheets(selectedBoat);
     if (localSheets.length > 0) {
-      setAoSheets(localSheets);
+      setSheetsByBoat((prev) => ({ ...prev, [selectedBoat]: localSheets }));
       setLoadingSheet(false);
       return;
     }
@@ -223,10 +275,13 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       .then((r) => r.json())
       .then((data: { success: boolean; sheet?: ParsedAoSheet }) => {
         if (canceled) return;
-        setAoSheets(data.success && data.sheet ? [data.sheet] : []);
+        setSheetsByBoat((prev) => ({
+          ...prev,
+          [selectedBoat]: data.success && data.sheet ? [data.sheet] : [],
+        }));
       })
       .catch(() => {
-        if (!canceled) setAoSheets([]);
+        if (!canceled) setSheetsByBoat((prev) => ({ ...prev, [selectedBoat]: [] }));
       })
       .finally(() => {
         if (!canceled) setLoadingSheet(false);
@@ -234,6 +289,48 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
     return () => { canceled = true; };
   }, [selectedBoat, boatListKey, refreshKey]);
+
+  // Ladda AO-utgåvor för båtar som satts på enskilda dagar. Måste ske i en
+  // effekt — localStorage-läsning under rendering ger hydration-mismatch.
+  React.useEffect(() => {
+    const missing = Array.from(new Set(Object.values(boatByDate))).filter(
+      (slug) => slug && !sheetsByBoat[slug],
+    );
+    if (missing.length === 0) return;
+
+    let canceled = false;
+    const loaded: Record<string, ParsedAoSheet[]> = {};
+    const pending: Promise<void>[] = [];
+
+    for (const slug of missing) {
+      const local = getLocalAoSheets(slug);
+      if (local.length > 0) {
+        loaded[slug] = local;
+        continue;
+      }
+      pending.push(
+        fetch(`/api/ao/sheets/${encodeURIComponent(slug)}`)
+          .then((r) => r.json())
+          .then((data: { success: boolean; sheet?: ParsedAoSheet }) => {
+            loaded[slug] = data.success && data.sheet ? [data.sheet] : [];
+          })
+          .catch(() => {
+            loaded[slug] = [];
+          }),
+      );
+    }
+
+    Promise.all(pending).then(() => {
+      if (!canceled) setSheetsByBoat((prev) => ({ ...loaded, ...prev }));
+    });
+
+    return () => { canceled = true; };
+  }, [boatByDate, sheetsByBoat]);
+
+  const aoSheets = React.useMemo(
+    () => sheetsByBoat[selectedBoat] ?? EMPTY_SHEETS,
+    [sheetsByBoat, selectedBoat],
+  );
 
   const showToast = React.useCallback((message: string, durationMs = 2500) => {
     setToastMessage(message);
@@ -279,16 +376,31 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
    * dagar bli tomma när användaren valt is-läge för en annan utgåva i
    * samma månad (t.ex. vår/höst 1–11 dec + vinter från 13 dec).
    */
+  /** Båten som gäller ett visst datum — dagens egen om den satts, annars månadens. */
+  const boatForDate = React.useCallback(
+    (dateISO: string) => boatByDate[dateISO] || selectedBoat,
+    [boatByDate, selectedBoat],
+  );
+
   const resolveDay = React.useCallback(
-    (dateISO: string): ResolvedDaySchedule => {
-      const sheet = pickEditionForDate(aoSheets, dateISO);
-      if (!sheet) {
-        return { dateISO, shifts: [], isStandard: true, notes: [], flags: [] };
-      }
-      const mode = sheet.hasIsVariant ? selectedMode : 'isfri';
-      return resolveAoDay(sheet, mode, dateISO);
+    (dateISO: string): ResolvedDaySchedule =>
+      resolveDayFromSheets(
+        sheetsByBoat[boatForDate(dateISO)] ?? EMPTY_SHEETS,
+        selectedMode,
+        dateISO,
+      ),
+    [sheetsByBoat, boatForDate, selectedMode],
+  );
+
+  /** Visningsnamn för dagens båt — används i tooltipen på AO-tiden. */
+  const boatNameForDate = React.useCallback(
+    (dateISO: string) => {
+      const slug = boatForDate(dateISO);
+      const sheet = pickEditionForDate(sheetsByBoat[slug] ?? EMPTY_SHEETS, dateISO);
+      if (sheet) return boatLabel(sheet.vesselName ?? sheet.sheetName);
+      return availableBoats.find((b) => b.value === slug)?.label ?? '';
     },
-    [aoSheets, selectedMode],
+    [boatForDate, sheetsByBoat, availableBoats],
   );
 
   // Återställ till isfri automatiskt om ingen utgåva i månaden har is-variant
@@ -298,29 +410,38 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
   }, [monthEditions.length, monthHasIsVariant]);
 
-  // Auto-ladda månadsdata när månaden ändras
+  // Auto-ladda månadsdata när månaden ändras.
+  // Saknas sparad månad nollställs allt — annars ligger förra månadens pass,
+  // markeringar och timmar kvar i state och skrivs in på den nya månaden.
+  // Båt och isläge behålls, de är användarens val och inte månadsdata.
   React.useEffect(() => {
     const saved = loadMonth(monthISO);
-    if (!saved) return;
-    if (saved.boatSlug && saved.boatSlug !== selectedBoat) {
+    if (saved?.boatSlug && saved.boatSlug !== selectedBoat) {
       setSelectedBoat(saved.boatSlug);
     }
-    if (saved.mode) setSelectedMode(saved.mode as AoMode);
-    setActiveShifts(new Set(saved.activeShifts ?? []));
-    setManualHoursByDate(saved.manualHoursByDate ?? {});
-    setOvertimeByDate(saved.overtimeByDate ?? {});
-    setKompHoursWeekday(saved.kompHoursWeekday ?? 0);
-    setKompHoursWeekend(saved.kompHoursWeekend ?? 0);    setSjukByDate(saved.sjukByDate ?? {});
-    setSemesterByDate(saved.semesterByDate ?? {});
-    setManualActiveDates(new Set(saved.manualActiveDates ?? []));
-    setMaskinByDate(new Set(saved.maskinDates ?? []));
-    setPlusByDate(saved.plusByDate ?? {});
-    setKompPayout(saved.kompPayout ?? false);
+    if (saved?.mode) setSelectedMode(saved.mode as AoMode);
+    setActiveShifts(new Set(saved?.activeShifts ?? []));
+    setManualHoursByDate(saved?.manualHoursByDate ?? {});
+    setOvertimeByDate(saved?.overtimeByDate ?? {});
+    setKompHoursWeekday(saved?.kompHoursWeekday ?? 0);
+    setKompHoursWeekend(saved?.kompHoursWeekend ?? 0);
+    setSjukByDate(saved?.sjukByDate ?? {});
+    setSemesterByDate(saved?.semesterByDate ?? {});
+    setManualActiveDates(new Set(saved?.manualActiveDates ?? []));
+    setMaskinByDate(new Set(saved?.maskinDates ?? []));
+    setPlusByDate(saved?.plusByDate ?? {});
+    setTraktamenteDates(new Set(saved?.traktamenteDates ?? []));
+    setNatthamnByDate(saved?.natthamnByDate ?? {});
+    setBoatByDate(saved?.boatByDate ?? {});
+    setKompPayout(saved?.kompPayout ?? false);
+    setLoadedMonth(monthISO);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthISO]);
 
   // Auto-spara månadsdata när state ändras
   React.useEffect(() => {
+    // State hör ännu till förra månaden — vänta tills månadsdatan laddats
+    if (loadedMonth !== monthISO) return;
     if (activeShifts.size === 0 &&
         Object.keys(manualHoursByDate).length === 0 &&
         Object.keys(overtimeByDate).length === 0 &&
@@ -329,6 +450,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         manualActiveDates.size === 0 &&
         maskinByDate.size === 0 &&
         Object.keys(plusByDate).length === 0 &&
+        traktamenteDates.size === 0 &&
+        Object.keys(boatByDate).length === 0 &&
         kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
     saveMonth({
       monthISO,
@@ -345,9 +468,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       manualActiveDates: Array.from(manualActiveDates),
       maskinDates: Array.from(maskinByDate),
       plusByDate,
+      traktamenteDates: Array.from(traktamenteDates),
+      natthamnByDate,
+      boatByDate,
       savedAt: new Date().toISOString(),
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, saveMonth]);
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, traktamenteDates, natthamnByDate, boatByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, loadedMonth, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -558,7 +684,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
   // ── Importera lönespec till kalender ────────────────────────────────────────
 
-  const [currentPayslip, setCurrentPayslip] = React.useState(() => loadPayslip(monthISO));
+  // Börjar tom och fylls av effekten nedan — att läsa localStorage direkt i
+  // initialvärdet ger hydration-mismatch när månaden har en sparad lönespec.
+  const [currentPayslip, setCurrentPayslip] = React.useState<
+    import('@/components/AppContext').SavedPayslip | null
+  >(null);
   const [payslipPickerList, setPayslipPickerList] = React.useState<import('@/components/AppContext').SavedPayslip[] | null>(null);
 
   // Uppdatera när månad ändras eller localStorage ändras från annan flik/komponent
@@ -630,16 +760,17 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         // Lägg tillbaka ev. klippt plustid så dagen jämförs mot hela arbetstiden
         const totalWorked = hours + (newPlus[iso] ?? 0);
 
-        // Utgåva per dag — en spec kan spänna över ett säsongsbyte
-        if (pickEditionForDate(aoSheets, iso)) {
-          const resolved = resolveDay(iso);
-          const aoHours = calcTidEnlKollAvtHours(resolved) ?? 0;
-          const perShift = calcTidEnlPerShift(resolved);
-
+        // Utgåva per dag — en spec kan spänna över ett säsongsbyte, och
+        // enskilda dagar kan ha en annan båt än månadens
+        const daySheets = sheetsByBoat[boatForDate(iso)] ?? EMPTY_SHEETS;
+        if (pickEditionForDate(daySheets, iso)) {
           // Lönespecens timmar är summan per dag. Vid på/avmönstring har AO
           // två pass samma dag — specen kan motsvara ena passet, andra passet
           // eller båda. Hitta den delmängd av passen vars summa stämmer.
-          const matchedShifts = findMatchingShifts(perShift, totalWorked);
+          const { perShift, aoHours, matched: matchedShifts } = matchDayAgainstAo(
+            resolveDay(iso),
+            totalWorked,
+          );
 
           if (matchedShifts) {
             for (const i of matchedShifts) {
@@ -731,6 +862,162 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
     if (Object.keys(newDeviations).length > 0) {
       showToast(`${Object.keys(newDeviations).length} dag(ar) avviker mellan lönespec och AO-schema`);
+    }
+  }
+
+  /**
+   * Sätter båt för en dag (eller resten av månaden) och kör om jämförelsen
+   * mot den nya båtens AO-tid. Gamla markeringar tas bort — de avser den
+   * förra båtens pass.
+   */
+  function applyDayBoat(slug: string, applyRestOfMonth: boolean) {
+    if (!selectedDateISO) return;
+    const dates = applyRestOfMonth ? datesToMonthEnd(selectedDateISO) : [selectedDateISO];
+    const dateSet = new Set(dates);
+    const effectiveSlug = slug || selectedBoat;
+
+    // Utgåvorna behövs direkt för omkollen. Läsningen sker i en
+    // händelsehanterare, inte under rendering, så den är hydration-säker.
+    let sheets = sheetsByBoat[effectiveSlug];
+    if (effectiveSlug && !sheets) {
+      sheets = getLocalAoSheets(effectiveSlug);
+      if (sheets.length > 0) {
+        const loaded = sheets;
+        setSheetsByBoat((prev) => ({ ...prev, [effectiveSlug]: loaded }));
+      }
+    }
+    const daySheets = sheets ?? EMPTY_SHEETS;
+
+    setBoatByDate((prev) => {
+      const next = { ...prev };
+      for (const iso of dates) {
+        if (slug) next[iso] = slug;
+        else delete next[iso];
+      }
+      return next;
+    });
+
+    // Markeringar och tidigare jämförelseresultat för dagarna nollställs
+    setActiveShifts((prev) =>
+      new Set(Array.from(prev).filter((k) => !dateSet.has(k.slice(0, k.lastIndexOf('::'))))),
+    );
+    const dropDates = (obj: Record<string, unknown>) =>
+      Object.fromEntries(Object.entries(obj).filter(([iso]) => !dateSet.has(iso)));
+
+    const ps = loadPayslip(monthISO);
+    const spec = ps?.overview.art315?.hoursByDateISO;
+    const plus = ps?.overview.art483?.hoursByDateISO ?? {};
+    const vabDates = new Set<string>([
+      ...(ps?.overview.art810?.datesISO ?? []),
+      ...(ps?.overview.art81001?.datesISO ?? []),
+    ]);
+
+    const newShiftKeys: string[] = [];
+    const newDeviations: Record<string, { payslipH: number; aoH: number }> = {};
+    const newConfirmed: Record<string, boolean> = {};
+
+    if (spec) {
+      for (const iso of dates) {
+        if (semesterByDate[iso] || vabDates.has(iso)) continue;
+        const hours = spec[iso];
+        if (hours === undefined) continue;
+        if (!pickEditionForDate(daySheets, iso)) continue;
+
+        const totalWorked = hours + (plus[iso] ?? 0);
+        const { perShift, aoHours, matched } = matchDayAgainstAo(
+          resolveDayFromSheets(daySheets, selectedMode, iso),
+          totalWorked,
+        );
+
+        if (matched) {
+          for (const i of matched) newShiftKeys.push(shiftKey(iso, i));
+          newConfirmed[iso] = true;
+        } else {
+          newDeviations[iso] = { payslipH: totalWorked, aoH: aoHours };
+          if (perShift.length > 0) newShiftKeys.push(shiftKey(iso, 0));
+        }
+      }
+    }
+
+    setActiveShifts((prev) => new Set([...prev, ...newShiftKeys]));
+    setPayslipDeviations((prev) => ({
+      ...(dropDates(prev) as Record<string, { payslipH: number; aoH: number }>),
+      ...newDeviations,
+    }));
+    setPayslipConfirmed((prev) => ({
+      ...(dropDates(prev) as Record<string, boolean>),
+      ...newConfirmed,
+    }));
+
+    // Modalen ska visa den nya båtens pass direkt
+    setSelectedResolvedDay(resolveDayFromSheets(daySheets, selectedMode, selectedDateISO));
+  }
+
+  // ── Obetalt traktamente ─────────────────────────────────────────────────────
+
+  /**
+   * Sparade månader för året, där den visade månaden ersätts av aktuellt
+   * state (auto-sparningen kan ligga ett renderingssteg efter).
+   */
+  function traktamenteMonths(): SavedMonth[] {
+    const yearPrefix = String(currentYear);
+    const months = listSavedMonths().filter((m) => m.monthISO.startsWith(yearPrefix));
+    const current: SavedMonth = {
+      ...(months.find((m) => m.monthISO === monthISO) ?? {
+        monthISO,
+        boatSlug: selectedBoat,
+        mode: selectedMode,
+        manualHoursByDate: {},
+        overtimeByDate: {},
+        kompHoursWeekday: 0,
+        kompHoursWeekend: 0,
+        sjukByDate: {},
+        semesterByDate: {},
+        savedAt: new Date().toISOString(),
+        activeShifts: [],
+      }),
+      activeShifts: Array.from(activeShifts),
+      boatSlug: selectedBoat,
+      mode: selectedMode,
+      traktamenteDates: Array.from(traktamenteDates),
+      natthamnByDate,
+    };
+    if (!monthISO.startsWith(yearPrefix)) return months;
+    return [...months.filter((m) => m.monthISO !== monthISO), current];
+  }
+
+  // Räknas fram efter mount, inte under renderingen — antalet bygger på
+  // localStorage som servern inte har, och en render-tidsläsning skulle ge
+  // hydration-mismatch (servern renderar utan knapp, klienten med).
+  const [traktamenteYearCount, setTraktamenteYearCount] = React.useState(0);
+
+  React.useEffect(() => {
+    setTraktamenteYearCount(
+      traktamenteMonths().reduce(
+        (sum, m) =>
+          sum + (m.traktamenteDates ?? []).filter((d) => d.startsWith(m.monthISO)).length,
+        0,
+      ),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentYear, monthISO, traktamenteDates, natthamnByDate, selectedBoat]);
+
+  async function downloadTraktamente() {
+    const months = traktamenteMonths();
+    const rows = buildTraktamenteRows(currentYear, months, loadPayslip);
+    if (rows.length === 0) {
+      showToast(`Inga dagar markerade för obetalt traktamente under ${currentYear}.`);
+      return;
+    }
+    let employeeName: string | null = null;
+    for (const m of months) {
+      const name = loadPayslip(m.monthISO)?.employeeName;
+      if (name) { employeeName = name; break; }
+    }
+    try {
+      await downloadTraktamentePdf(currentYear, rows, employeeName);
+    } catch {
+      showToast('Kunde inte skapa PDF:en. Försök igen.', 4000);
     }
   }
 
@@ -833,7 +1120,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           Aktiv tariff: {selectedTariffYear}
           {headerEdition && (
             <span className="ml-3 text-white/40">
-              AO: {headerEdition.vesselName ?? headerEdition.sheetName}
+              AO: {boatLabel(headerEdition.vesselName ?? headerEdition.sheetName)}
               {roleLabel(headerEdition.roles) ? ` (${roleLabel(headerEdition.roles)})` : ''}
               {headerEdition.validFrom && headerEdition.validTo
                 ? ` · ${headerEdition.validFrom} – ${headerEdition.validTo}`
@@ -880,6 +1167,16 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
               </span>
             </>
           )}
+          {traktamenteYearCount > 0 && (
+            <button
+              type="button"
+              onClick={downloadTraktamente}
+              className="rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/20"
+              title={`${traktamenteYearCount} dag(ar) markerade för obetalt traktamente under ${currentYear}`}
+            >
+              Ladda ner traktamente {currentYear} (PDF)
+            </button>
+          )}
         </div>
 
         {/* Kalenderrutnät */}
@@ -922,6 +1219,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         const holidayInfo = getHolidayInfo(dateISO);
                         const deviation = payslipDeviations[dateISO];
                         const confirmed = payslipConfirmed[dateISO];
+
+                        // Fler timmar på specen än i AO är inget problem (ljusgrönt),
+                        // färre timmar är det som behöver kontrolleras (rött).
+                        const specOverAo = deviation ? deviation.payslipH > deviation.aoH : false;
+                        const dayBoatName = boatNameForDate(dateISO);
+                        const boatOverridden = Boolean(boatByDate[dateISO]);
 
                         // Bokförd tid (inskriven av kontoret) stämmer med
                         // avtalstiden → lila bock. Samma delmängdsmatchning
@@ -971,7 +1274,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                     (plusByDate[dateISO] ?? 0) > 0
                                       ? ` (${fmtPayslipHours(deviation.payslipH - plusByDate[dateISO])} + ${fmtPayslipHours(plusByDate[dateISO])} plustid)`
                                       : ''
-                                  }, AO: ${fmtPayslipHours(deviation.aoH)} h`
+                                  }, AO: ${fmtPayslipHours(deviation.aoH)} h — ${fmtPayslipHours(Math.abs(deviation.payslipH - deviation.aoH))} h ${specOverAo ? 'mer' : 'mindre'} än AO`
                                 : confirmed
                                 ? 'Lönespec stämmer med AO-schemat'
                                 : undefined
@@ -995,7 +1298,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                     >
                                       <span className={[
                                         'h-2.5 w-2.5 rounded-full transition-colors',
-                                        active && deviation ? 'bg-red-700' : active ? 'bg-green-400' : 'bg-purple-400/60',
+                                        active && deviation
+                                          ? specOverAo ? 'bg-emerald-300' : 'bg-red-700'
+                                          : active ? 'bg-green-400' : 'bg-purple-400/60',
                                       ].join(' ')} />
                                     </span>
                                   );
@@ -1025,6 +1330,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               {maskinByDate.has(dateISO) && (
                                 <span className="rounded bg-cyan-500/25 px-1 text-[9px] leading-tight text-cyan-200" title="Maskinskötseltillägg utbetalt denna dag enligt lönespecen.">M</span>
                               )}
+                              {traktamenteDates.has(dateISO) && (
+                                <span
+                                  className="rounded bg-blue-500/30 px-1 text-[9px] leading-tight text-blue-200"
+                                  title={`Obetalt traktamente (övernattning ombord)${natthamnByDate[dateISO] ? ` — natthamn: ${natthamnByDate[dateISO]}` : ''}`}
+                                >
+                                  T
+                                </span>
+                              )}
                               {newEdition && (
                                 <span
                                   className="rounded bg-indigo-500/30 px-1 text-[9px] leading-tight text-indigo-200"
@@ -1039,7 +1352,15 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 {shiftHours.map((h, i) => {
                                   const active = activeShifts.has(shiftKey(dateISO, i));
                                   return (
-                                    <span key={i} className={['text-[13px] font-semibold leading-none transition-colors', active ? 'text-green-300' : 'text-sky-300/50'].join(' ')}>
+                                    <span
+                                      key={i}
+                                      className={['text-[13px] font-semibold leading-none transition-colors', active ? 'text-green-300' : 'text-sky-300/50'].join(' ')}
+                                      title={
+                                        dayBoatName
+                                          ? `AO-tid för ${dayBoatName}${boatOverridden ? ' — vald för denna dag' : ''}`
+                                          : undefined
+                                      }
+                                    >
                                       {fmtHours(h)} h{' '}
                                       <span className="text-[10px] font-normal opacity-70">avt.</span>
                                     </span>
@@ -1048,7 +1369,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               </div>
                             )}
                             {deviation && !semesterByDate[dateISO] && (
-                              <span className="text-[11px] font-semibold leading-none text-red-400">
+                              <span
+                                className={[
+                                  'text-[11px] font-semibold leading-none',
+                                  specOverAo ? 'text-emerald-300' : 'text-red-400',
+                                ].join(' ')}
+                              >
                                 {fmtPayslipHours(deviation.payslipH)} h löns.
                               </span>
                             )}
@@ -1368,6 +1694,33 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
           if (!selectedDateISO) return;
           setOvertimeByDate((prev) => ({ ...prev, [selectedDateISO]: h }));
         }}
+        traktamente={selectedDateISO ? traktamenteDates.has(selectedDateISO) : false}
+        onTraktamenteChange={(on) => {
+          if (!selectedDateISO) return;
+          setTraktamenteDates((prev) => {
+            const next = new Set(prev);
+            if (on) next.add(selectedDateISO);
+            else next.delete(selectedDateISO);
+            return next;
+          });
+          if (on) {
+            // Föreslå senast använda natthamn för nya dagar
+            const suggestion = knownNatthamnar[0];
+            if (suggestion && !natthamnByDate[selectedDateISO]) {
+              setNatthamnByDate((prev) => ({ ...prev, [selectedDateISO]: suggestion }));
+            }
+          }
+        }}
+        natthamn={selectedDateISO ? (natthamnByDate[selectedDateISO] ?? '') : ''}
+        onNatthamnChange={(value) => {
+          if (!selectedDateISO) return;
+          setNatthamnByDate((prev) => ({ ...prev, [selectedDateISO]: value }));
+        }}
+        knownNatthamnar={knownNatthamnar}
+        boats={availableBoats}
+        dayBoat={selectedDateISO ? (boatByDate[selectedDateISO] ?? '') : ''}
+        monthBoatLabel={availableBoats.find((b) => b.value === selectedBoat)?.label ?? ''}
+        onDayBoatChange={applyDayBoat}
         maskin={selectedDateISO ? maskinByDate.has(selectedDateISO) : false}
         onMaskinChange={(on) => {
           if (!selectedDateISO) return;
@@ -1378,7 +1731,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             return next;
           });
         }}
-        onClose={() => setIsModalOpen(false)}
+        onClose={() => {
+          // Spara ev. inskriven natthamn som förslag till kommande dagar
+          if (selectedDateISO && traktamenteDates.has(selectedDateISO)) {
+            const value = natthamnByDate[selectedDateISO];
+            if (value) rememberNatthamn(value);
+          }
+          setIsModalOpen(false);
+        }}
       />
 
       {showSavePrompt && (

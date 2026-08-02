@@ -7,6 +7,7 @@ import { AoUpload } from '@/components/AoUpload';
 import { useAppContext } from '@/components/AppContext';
 import type { SavedPayslip } from '@/components/AppContext';
 import { deleteLocalAoSheet, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import { boatLabel } from '@/lib/ao/editions';
 import type { StoredAoSheetMeta } from '@/lib/ao/types';
 
 type AoSheetMeta = StoredAoSheetMeta;
@@ -147,8 +148,7 @@ function AoSection() {
   }
 
   function formatBoatLabel(s: AoSheetMeta) {
-    const raw = s.vesselName ?? s.sheetName;
-    return raw.replace(/\s+Reg\..*$/i, '').trim() || raw;
+    return boatLabel(s.vesselName ?? s.sheetName);
   }
 
   return (

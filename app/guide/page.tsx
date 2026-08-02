@@ -155,7 +155,14 @@ export default function GuidePage() {
             Välj din båt i <strong className="text-[#e8edf8]">Välj båt</strong>-listan ovanför
             kalendern. Dagarna fylls med AO:ns arbetstider (&quot;h avt.&quot;), och raden ovanför
             kalendern visar vilken AO som är aktiv — båt, befattning (Däck/Café) och
-            giltighetsperiod.
+            giltighetsperiod. Håll muspekaren över en dags &quot;h avt.&quot; för att se vilken
+            båt tiden kommer från.
+          </p>
+          <p className="text-[0.85rem] text-[#e8edf8]/50">
+            Bytte du båt mitt i månaden? Klicka på dagen och välj båt under{' '}
+            <strong className="text-[#e8edf8]">Båt för dagen</strong> — kryssa i &quot;gäller
+            resten av månaden&quot; så sätts den nya båten på alla dagar framåt. Tiderna
+            jämförs automatiskt om mot den nya båtens AO.
           </p>
         </Step>
         <Connector />
@@ -187,7 +194,11 @@ export default function GuidePage() {
             </li>
             <li className="flex items-start gap-2">
               <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-red-400" />
-              <span><strong className="text-red-300">Röd prick</strong> — avvikelse. Hovra över dagen för att se specens och AO:ns timmar.</span>
+              <span><strong className="text-red-300">Röd prick</strong> — specen har <em>färre</em> timmar än AO:n. Det är den som behöver kontrolleras. Hovra över dagen för att se skillnaden.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-300" />
+              <span><strong className="text-emerald-300">Ljusgrön prick</strong> — specen har <em>fler</em> timmar än AO:n, alltså inget som saknas.</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-purple-400" />
@@ -198,6 +209,24 @@ export default function GuidePage() {
             Summeringen under kalendern räknar ihop tid, OB, övertid, tillägg och estimerad
             bruttolön. Vid på-/avmönstring med två pass samma dag markeras passet med rätt tid
             automatiskt.
+          </p>
+        </Step>
+        <Connector />
+
+        <Step num="9" title="Obetalt traktamente — markera och ladda ner listan">
+          <p>
+            Klicka på en dag du övernattat ombord och kryssa i{' '}
+            <strong className="text-[#e8edf8]">Obetalt traktamente</strong> i dagrutan. Skriv in
+            natthamnen — hamnar du använt tidigare sparas och föreslås nästa gång. Dagen märks
+            med{' '}
+            <span className="rounded bg-blue-500/30 px-1 text-[0.7rem] text-blue-200">T</span> i
+            kalendern.
+          </p>
+          <p>
+            Knappen <strong className="text-[#e8edf8]">Ladda ner traktamente (PDF)</strong> ger en
+            färdig lista för hela året med datum, start- och sluttid, båt och natthamn, samt
+            totalt antal dagar sist. Tiderna hämtas från AO:n; har lönespecen fler timmar än AO
+            den dagen skrivs sluttiden upp med mellanskillnaden och markeras med en asterisk.
           </p>
         </Step>
 

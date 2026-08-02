@@ -151,3 +151,12 @@ export function periodLabel(sheet: ParsedAoSheet): string {
     .map((p) => `${p.from} – ${p.to}`)
     .join(", ");
 }
+
+/**
+ * Rent båtnamn för visning — AO-filernas fartygsnamn släpar med
+ * "Reg.bet: XXXX Fartygsnr:" som inte hör hemma i UI eller utskrifter.
+ */
+export function boatLabel(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw.replace(/\s+Reg\..*$/i, "").trim() || raw;
+}
