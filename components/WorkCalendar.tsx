@@ -210,6 +210,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   // plustid per datum (art483 — tid över årsarbetstidstaket; ordinarie tid
   // klipps på specen den dagen, verklig arbetstid = art315 + art483)
   const [plusByDate, setPlusByDate] = React.useState<Record<string, number>>({});
+  // VAB (art810) — timmar per dag, fördelade mot AO-tiden, samt specens
+  // löneavdrag (art81001) och den arbetade tiden dagen gäller
+  const [vabByDate, setVabByDate] = React.useState<Record<string, number>>({});
+  const [vabSekByDate, setVabSekByDate] = React.useState<Record<string, number>>({});
+  const [arbetadByDate, setArbetadByDate] = React.useState<Record<string, number>>({});
   // obetalt traktamente (övernattning ombord) — markeras manuellt per dag
   const [traktamenteDates, setTraktamenteDates] = React.useState<Set<string>>(new Set());
   const [natthamnByDate, setNatthamnByDate] = React.useState<Record<string, string>>({});
@@ -433,6 +438,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setTraktamenteDates(new Set(saved?.traktamenteDates ?? []));
     setNatthamnByDate(saved?.natthamnByDate ?? {});
     setBoatByDate(saved?.boatByDate ?? {});
+    setVabByDate(saved?.vabByDate ?? {});
+    setVabSekByDate(saved?.vabSekByDate ?? {});
+    setArbetadByDate(saved?.arbetadByDate ?? {});
     setKompPayout(saved?.kompPayout ?? false);
     setLoadedMonth(monthISO);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -452,6 +460,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         Object.keys(plusByDate).length === 0 &&
         traktamenteDates.size === 0 &&
         Object.keys(boatByDate).length === 0 &&
+        Object.keys(vabByDate).length === 0 &&
         kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
     saveMonth({
       monthISO,
@@ -471,9 +480,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       traktamenteDates: Array.from(traktamenteDates),
       natthamnByDate,
       boatByDate,
+      vabByDate,
+      vabSekByDate,
+      arbetadByDate,
       savedAt: new Date().toISOString(),
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, traktamenteDates, natthamnByDate, boatByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, loadedMonth, saveMonth]);
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, traktamenteDates, natthamnByDate, boatByDate, vabByDate, vabSekByDate, arbetadByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, loadedMonth, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -736,7 +748,47 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
     setSemesterByDate(newSemester);
 
+    // VAB (art810): specen anger flerdagarsintervall som en klumpsumma
+    // ("2026-02-21 – 2026-02-23  29,83 Tim"). Fördela den proportionellt mot
+    // dagens schemalagda tid — en hel VAB-dag motsvarar hela passet — så att
+    // intervallets summa bevaras exakt. Utan tider fördelas timmarna jämnt.
+    const specHours = ov.art315?.hoursByDateISO ?? {};
+    const newVab: Record<string, number> = {};
+    for (const range of ov.art810?.rangesISO ?? []) {
+      const days: string[] = [];
+      for (
+        let d = new Date(`${range.from}T12:00:00`);
+        normalizeDateISO(d) <= range.to;
+        d.setDate(d.getDate() + 1)
+      ) {
+        days.push(normalizeDateISO(d));
+      }
+      if (days.length === 0) continue;
+
+      // Vikta i första hand mot specens nominella tid för dagen (art315) —
+      // den ligger kvar vid VAB och är det avdraget räknas på. Saknas den
+      // används AO-tiden, annars jämn fördelning.
+      const weights = days.map(
+        (iso) => specHours[iso] ?? calcTidEnlKollAvtHours(resolveDay(iso)) ?? 0,
+      );
+      const weightSum = weights.reduce((s, h) => s + h, 0);
+      days.forEach((iso, i) => {
+        const share =
+          weightSum > 0 ? (weights[i] / weightSum) * range.hours : range.hours / days.length;
+        newVab[iso] = (newVab[iso] ?? 0) + share;
+      });
+    }
+    // Fallback för specar utan intervall (äldre sparad data)
+    if (Object.keys(newVab).length === 0) {
+      for (const [iso, h] of Object.entries(ov.art810?.hoursByDateISO ?? {})) {
+        newVab[iso] = h;
+      }
+    }
+    setVabByDate(newVab);
+    setVabSekByDate(ov.art81001?.sekByDateISO ?? {});
+
     const vabDates = new Set<string>([
+      ...Object.keys(newVab),
       ...(ov.art810?.datesISO ?? []),
       ...(ov.art81001?.datesISO ?? []),
     ]);
@@ -748,17 +800,30 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     const newPlus = ov.art483?.hoursByDateISO ?? {};
     setPlusByDate(newPlus);
 
-    // Ordinarie tid (art315)
-    if (ov.art315?.hoursByDateISO) {
+    // Ordinarie tid (art315) — och VAB-dagar, som kan sakna art315-rad helt
+    const arbetadHours = ov.art315?.hoursByDateISO;
+    if (arbetadHours || Object.keys(newVab).length > 0) {
       const newManual = { ...semManual };
       const newActiveShifts = new Set(activeShifts);
       const newManualActive = new Set(manualActiveDates);
-      for (const [iso, hours] of Object.entries(ov.art315.hoursByDateISO)) {
-        if (semesterDates.has(iso)) continue;
-        if (vabDates.has(iso)) continue;
+      const newArbetad: Record<string, number> = {};
 
-        // Lägg tillbaka ev. klippt plustid så dagen jämförs mot hela arbetstiden
-        const totalWorked = hours + (newPlus[iso] ?? 0);
+      const dagar = Array.from(
+        new Set([...Object.keys(arbetadHours ?? {}), ...Object.keys(newVab)]),
+      ).sort();
+
+      for (const iso of dagar) {
+        if (semesterDates.has(iso)) continue;
+
+        // Art315 är nominell tid — den ligger kvar vid VAB och räknas in i
+        // årsarbetstiden, så VAB-timmarna finns redan i summan mot AO.
+        // Lägg tillbaka ev. klippt plustid så hela arbetstiden jämförs.
+        const totalWorked = (arbetadHours?.[iso] ?? 0) + (newPlus[iso] ?? 0);
+        if (totalWorked <= 0) continue;
+
+        // Faktiskt arbetad tid = nominell tid minus frånvaron
+        const arbetad = totalWorked - (newVab[iso] ?? 0);
+        if (arbetad > 0.03) newArbetad[iso] = arbetad;
 
         // Utgåva per dag — en spec kan spänna över ett säsongsbyte, och
         // enskilda dagar kan ha en annan båt än månadens
@@ -799,6 +864,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       setActiveShifts(newActiveShifts);
       setManualActiveDates(newManualActive);
       setManualHoursByDate(newManual);
+      setArbetadByDate(newArbetad);
       setPayslipDeviations(newDeviations);
       setPayslipConfirmed(newConfirmed);
     } else if (semesterDates.size > 0) {
@@ -1330,6 +1396,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               {maskinByDate.has(dateISO) && (
                                 <span className="rounded bg-cyan-500/25 px-1 text-[9px] leading-tight text-cyan-200" title="Maskinskötseltillägg utbetalt denna dag enligt lönespecen.">M</span>
                               )}
+                              {(vabByDate[dateISO] ?? 0) > 0 && (
+                                <span
+                                  className="rounded bg-yellow-500/25 px-1 text-[9px] leading-tight text-yellow-200"
+                                  title={`Vård av barn — ${fmtPayslipHours(vabByDate[dateISO])} h enligt lönespecen. Tiden räknas mot AO-schemat; löneavdraget visas i summeringen.`}
+                                >
+                                  VAB
+                                </span>
+                              )}
                               {traktamenteDates.has(dateISO) && (
                                 <span
                                   className="rounded bg-blue-500/30 px-1 text-[9px] leading-tight text-blue-200"
@@ -1368,7 +1442,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 })}
                               </div>
                             )}
-                            {deviation && !semesterByDate[dateISO] && (
+                            {deviation && !semesterByDate[dateISO] && !(vabByDate[dateISO] > 0) && (
                               <span
                                 className={[
                                   'text-[11px] font-semibold leading-none',
@@ -1376,6 +1450,27 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 ].join(' ')}
                               >
                                 {fmtPayslipHours(deviation.payslipH)} h löns.
+                              </span>
+                            )}
+                            {/* VAB-dagar visar arbetad tid och VAB-tid var för sig, så
+                                att tre tider syns på en dag man gått tidigt */}
+                            {(vabByDate[dateISO] ?? 0) > 0 && (arbetadByDate[dateISO] ?? 0) > 0 && (
+                              <span
+                                className={[
+                                  'block text-[11px] font-semibold leading-none',
+                                  deviation ? (specOverAo ? 'text-emerald-300' : 'text-red-400') : 'text-sky-300/70',
+                                ].join(' ')}
+                              >
+                                {fmtPayslipHours(arbetadByDate[dateISO])} h löns.
+                              </span>
+                            )}
+                            {(vabByDate[dateISO] ?? 0) > 0 && (
+                              <span
+                                className="mt-0.5 block text-[12px] font-semibold leading-none text-yellow-300/90"
+                                title="Vård av barn (art810). Tiden räknas mot AO-schemat; löneavdraget syns i summeringen."
+                              >
+                                {fmtPayslipHours(vabByDate[dateISO])} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">vab</span>
                               </span>
                             )}
                             {(plusByDate[dateISO] ?? 0) > 0 && (
@@ -1420,7 +1515,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       </section>
 
-      {(activeShifts.size > 0 || savedShiftCount > 0 || manualActiveDates.size > 0 || maskinByDate.size > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
+      {(activeShifts.size > 0 || savedShiftCount > 0 || manualActiveDates.size > 0 || maskinByDate.size > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || Object.values(vabByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
         const totalPass = savedShiftCount + activeShifts.size;
         const totalHours = savedHours + totalActiveHours;
 
@@ -1432,6 +1527,13 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         const kompWeRate = monthlyRateKomp / 72;
         const kompTotalKr = kompHoursWeekday * kompWdRate + kompHoursWeekend * kompWeRate;
         const kompTotalHours = kompHoursWeekday + kompHoursWeekend;
+
+        // VAB: timmarna räknas mot AO, men frånvaron dras av på lönen.
+        // Beloppet står på specen (art81001) — inget behov av egen framräkning.
+        const vabHours = Object.values(vabByDate).reduce((s, h) => s + h, 0);
+        const vabAvdrag = Math.abs(
+          Object.values(vabSekByDate).reduce((s, v) => s + v, 0),
+        );
         return (
           <section className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
             <div className="mb-4 flex items-center justify-between">
@@ -1649,13 +1751,31 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                   );
                 })()}
 
+                {/* VAB-avdrag — beloppet tas från lönespecen (art81001) */}
+                {vabHours > 0 && (
+                  <div className="flex items-center gap-4 bg-yellow-400/8 px-4 py-3">
+                    <div className="flex-1">
+                      <div className="text-[11px] font-medium uppercase tracking-wide text-yellow-300/60">VAB-avdrag (vård av barn)</div>
+                      <div className="mt-0.5 text-2xl font-bold text-yellow-300">
+                        {vabAvdrag > 0
+                          ? <>&minus;{vabAvdrag.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr</>
+                          : <>{vabHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h</>}
+                      </div>
+                      <div className="text-[11px] text-yellow-300/40">
+                        {vabHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h frånvaro
+                        {vabAvdrag > 0 ? ' — avdrag enligt lönespecen' : ' — inget avdragsbelopp på lönespecen'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Total */}
                 {(() => {
                   const monthlyRate = selectedTariff.monthly[groundSalarySelection.tenure];
                   const sjukPerTimme = monthlyRate / 173;
                   const sjukHours = Object.values(sjukByDate).reduce((s, h) => s + h, 0);
                   const sjukAvdrag = sjukHours * sjukPerTimme;
-                  const adjustedTotal = sb.total - sjukAvdrag + (kompPayout ? kompTotalKr : 0);
+                  const adjustedTotal = sb.total - sjukAvdrag - vabAvdrag + (kompPayout ? kompTotalKr : 0);
                   return (
                     <div className="flex items-center gap-4 bg-white/10 px-4 py-4">
                       <div className="flex-1">

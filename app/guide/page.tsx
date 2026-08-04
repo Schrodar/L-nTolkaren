@@ -204,6 +204,14 @@ export default function GuidePage() {
               <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-purple-400" />
               <span><strong className="text-purple-300">Lila prick</strong> — pass som inte är markerat som arbetat.</span>
             </li>
+            <li className="flex items-start gap-2">
+              <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-yellow-400" />
+              <span>
+                <strong className="text-yellow-300">VAB</strong> — vård av barn från specen, med timmarna i gult.
+                Tiden ligger kvar i årsarbetstiden, så dagen jämförs mot AO som vanligt; gick du tidigt syns både
+                arbetad tid och VAB-tid. Löneavdraget hämtas från specen och visas i summeringen.
+              </span>
+            </li>
           </ul>
           <p>
             Summeringen under kalendern räknar ihop tid, OB, övertid, tillägg och estimerad

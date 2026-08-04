@@ -66,6 +66,9 @@ export type SavedMonth = {
   traktamenteDates?: string[];                    // dagar markerade för obetalt traktamente (övernattning ombord)
   natthamnByDate?: Record<string, string>;        // datum → natthamn för övernattningen
   boatByDate?: Record<string, string>;            // datum → båt-slug när dagen avviker från månadens båt
+  vabByDate?: Record<string, number>;             // datum → VAB-timmar (art810, fördelade mot AO-tiden)
+  vabSekByDate?: Record<string, number>;          // datum → löneavdrag för VAB från specen (art81001, negativt)
+  arbetadByDate?: Record<string, number>;         // datum → arbetad tid enligt specen (art315 + art483)
   savedAt: string;                               // ISO-timestamp
 };
 

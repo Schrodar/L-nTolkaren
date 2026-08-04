@@ -208,6 +208,13 @@ export type ArtSummary810 = {
   monthISO: string | null;
   hoursTotal: number;
   hoursByDateISO: Record<string, number>;
+  /**
+   * Raderna som de står på specen — ett flerdagarsintervall anges som en
+   * klumpsumma ("2026-02-21 - 2026-02-23  29,83 Tim"). hoursByDateISO delar
+   * den jämnt, vilket sällan stämmer mot schemat; med intervallen kvar kan
+   * kalendern fördela timmarna proportionellt mot AO-tiden per dag.
+   */
+  rangesISO: { from: string; to: string; hours: number }[];
 };
 
 export type ArtSummary81001 = {
@@ -1357,6 +1364,7 @@ export function summarizePayslipArtGroups(
     let hoursTotal = 0;
     const dates = new Set<string>();
     const hoursByDateISO: Record<string, number> = {};
+    const rangesISO: { from: string; to: string; hours: number }[] = [];
 
     for (const row of art810Group.rows) {
       const parsed = parseArtRow(row);
@@ -1369,6 +1377,7 @@ export function summarizePayslipArtGroups(
       if (!expanded.length) continue;
 
       hoursTotal += hours;
+      rangesISO.push({ from: parsed.dateFrom, to: parsed.dateTo, hours });
       const perDay = hours / expanded.length;
       for (const d of expanded) {
         dates.add(d);
@@ -1388,6 +1397,7 @@ export function summarizePayslipArtGroups(
       monthISO,
       hoursTotal,
       hoursByDateISO,
+      rangesISO,
     };
   }
 
