@@ -5,17 +5,13 @@ import { format } from 'date-fns';
 import { sv } from 'date-fns/locale';
 
 import type { BoatOption, ResolvedDaySchedule } from '@/lib/schedule/types';
-import { getHolidayInfo, getEffectiveAoDayType } from '@/lib/ao/holidayRules';
+import { getHolidayInfo } from '@/lib/ao/holidayRules';
 
 type DayModalProps = {
   isOpen: boolean;
   dateISO: string | null;
   resolvedDay: ResolvedDaySchedule | null;
   tidEnlKollAvt: number | null;
-  manualHours: number;
-  onManualHoursChange: (hours: number) => void;
-  overtime: number;
-  onOvertimeChange: (hours: number) => void;
   maskin: boolean;
   onMaskinChange: (on: boolean) => void;
   traktamente: boolean;
@@ -37,7 +33,7 @@ function formatHHMM(hours: number): string {
   return `${h}:${m.toString().padStart(2, '0')}`;
 }
 
-export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHours, onManualHoursChange, overtime, onOvertimeChange, maskin, onMaskinChange, traktamente, onTraktamenteChange, natthamn, onNatthamnChange, knownNatthamnar, boats, dayBoat, monthBoatLabel, onDayBoatChange, onClose }: DayModalProps) {
+export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, maskin, onMaskinChange, traktamente, onTraktamenteChange, natthamn, onNatthamnChange, knownNatthamnar, boats, dayBoat, monthBoatLabel, onDayBoatChange, onClose }: DayModalProps) {
   const [applyRestOfMonth, setApplyRestOfMonth] = React.useState(false);
 
   // Nollställ "resten av månaden" när en ny dag öppnas
@@ -65,27 +61,6 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
 
   const displayDate = format(new Date(`${dateISO}T00:00:00`), 'd MMMM yyyy', { locale: sv });
   const holidayInfo = getHolidayInfo(dateISO);
-  const eff = getEffectiveAoDayType(dateISO);
-  let otLabel: string;
-  let otColor: string;
-  let otBorder: string;
-  let otInputColor: string;
-  if (eff === 'söndag' || eff === 'lördag') {
-    otLabel = 'Kvalificerad övertid';
-    otColor = 'text-rose-300';
-    otBorder = 'border-rose-500/30 bg-rose-500/10';
-    otInputColor = 'text-rose-200';
-  } else if (eff === 'fredag') {
-    otLabel = 'Fredag-OB';
-    otColor = 'text-violet-300';
-    otBorder = 'border-violet-500/30 bg-violet-500/10';
-    otInputColor = 'text-violet-200';
-  } else {
-    otLabel = 'Vanlig övertid';
-    otColor = 'text-orange-300';
-    otBorder = 'border-orange-500/30 bg-orange-500/10';
-    otInputColor = 'text-orange-200';
-  }
   const shifts = resolvedDay?.shifts ?? [];
   const isException = resolvedDay?.flags?.includes('undantag');
 
@@ -180,48 +155,6 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
           </datalist>
         </label>
       )}
-    </div>
-  );
-
-  const bokfordRow = (
-    <div className="flex items-center justify-between rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-2.5">
-      <div>
-        <div className="text-sm font-semibold text-green-300">Bokförd tid</div>
-        <div className="mt-0.5 text-xs text-white/40">tid inskriven av kontoret</div>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          value={manualHours || ''}
-          min={0}
-          step={0.5}
-          placeholder="0"
-          onChange={(e) => onManualHoursChange(e.target.value === '' ? 0 : Number(e.target.value))}
-          className="w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-lg font-bold text-green-200 [appearance:textfield]"
-        />
-        <span className="text-sm text-green-300">h</span>
-      </div>
-    </div>
-  );
-
-  const overtidRow = (
-    <div className={`flex items-center justify-between rounded-xl border px-4 py-2.5 ${otBorder}`}>
-      <div>
-        <div className={`text-sm font-semibold ${otColor}`}>{otLabel}</div>
-        <div className="mt-0.5 text-xs text-white/40">timmar idag</div>
-      </div>
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          value={overtime || ''}
-          min={0}
-          step={0.5}
-          placeholder="0"
-          onChange={(e) => onOvertimeChange(e.target.value === '' ? 0 : Number(e.target.value))}
-          className={`w-20 rounded-lg border border-white/15 bg-[#0B1B3A] px-2 py-1 text-right text-lg font-bold [appearance:textfield] ${otInputColor}`}
-        />
-        <span className={`text-sm ${otColor}`}>h</span>
-      </div>
     </div>
   );
 
@@ -320,8 +253,6 @@ export function DayModal({ isOpen, dateISO, resolvedDay, tidEnlKollAvt, manualHo
             {/* Höger: inmatning och tillägg */}
             <div className="space-y-3">
               {boatRow}
-              {bokfordRow}
-              {shifts.length > 0 && overtidRow}
               {maskinRow}
               {traktamenteRow}
             </div>

@@ -67,11 +67,49 @@ function firstPeriodStart(sheet: ParsedAoSheet): string {
 }
 
 /**
+ * Sant om utgåvan har ett schemablock som täcker datumet OCH som faktiskt
+ * innehåller tider (veckodagsrader eller ett undantag för dagen).
+ *
+ * Filernas rubrikdatum och schemablock går inte alltid i takt: vinter-AO:n
+ * säger sig gälla t.o.m. 2026-03-31 men har schema t.o.m. 2026-04-01, medan
+ * vår/höst-filens rubrik börjar 2026-04-01 fast dess schema börjar 04-02.
+ * Rena rubrikblock utan rader får därför inte räknas som "har schema".
+ */
+function hasScheduleForDate(sheet: ParsedAoSheet, isoDate: string): boolean {
+  return (sheet.blocks ?? []).some((block) => {
+    const inPeriod =
+      (block.periodStart <= isoDate && block.periodEnd >= isoDate) ||
+      (block.extraPeriods ?? []).some((p) => p.from <= isoDate && p.to >= isoDate);
+    if (!inPeriod) return false;
+    return (
+      (block.weeklySchedule ?? []).some((r) => r.workStart) ||
+      (block.exceptions ?? []).some((e) => e.resolvedDate === isoDate)
+    );
+  });
+}
+
+/** Senaste blockstart som täcker datumet — för att skilja överlappande utgåvor. */
+function scheduleStartForDate(sheet: ParsedAoSheet, isoDate: string): string {
+  let latest = "";
+  for (const block of sheet.blocks ?? []) {
+    const periods = [
+      { from: block.periodStart, to: block.periodEnd },
+      ...(block.extraPeriods ?? []),
+    ];
+    for (const p of periods) {
+      if (p.from <= isoDate && p.to >= isoDate && p.from > latest) latest = p.from;
+    }
+  }
+  return latest;
+}
+
+/**
  * Utgåvan som gäller ett visst datum, eller null om ingen täcker det
  * (t.ex. glapp mellan två säsonger).
  *
- * Vid överlapp — ska inte uppstå eftersom uppladdning ersätter överlappande
- * utgåvor, men kan finnas i äldre lagrad data — vinner den som startar senast.
+ * Utgåvan vars *schema* täcker dagen går före den vars rubrik gör det —
+ * annars hamnar t.ex. 1 april 2026 på vår/höst-filen, som inte har något
+ * schema förrän den 2:a, medan tiderna för dagen ligger i vinterfilen.
  * En utgåva helt utan giltighetsperioder används bara om ingen annan matchar.
  */
 export function pickEditionForDate(
@@ -79,18 +117,34 @@ export function pickEditionForDate(
   isoDate: string
 ): ParsedAoSheet | null {
   let best: ParsedAoSheet | null = null;
-  let bestStart = "";
+  let bestKey = "";
 
+  // 1. Utgåva med schema för dagen. Vid flera vinner den vars rubrik också
+  //    täcker datumet, därefter den med senast startande block.
+  for (const sheet of sheets) {
+    if (!hasScheduleForDate(sheet, isoDate)) continue;
+    const key = `${coversDate(sheet, isoDate) ? "1" : "0"}${scheduleStartForDate(sheet, isoDate)}`;
+    if (!best || key > bestKey) {
+      best = sheet;
+      bestKey = key;
+    }
+  }
+  if (best) return best;
+
+  // 2. Annars den utgåva vars giltighetstid täcker datumet
+  let byPeriod: ParsedAoSheet | null = null;
+  let byPeriodStart = "";
   for (const sheet of sheets) {
     if (!coversDate(sheet, isoDate)) continue;
     const start = firstPeriodStart(sheet);
-    if (!best || start > bestStart) {
-      best = sheet;
-      bestStart = start;
+    if (!byPeriod || start > byPeriodStart) {
+      byPeriod = sheet;
+      byPeriodStart = start;
     }
   }
+  if (byPeriod) return byPeriod;
 
-  if (best) return best;
+  // 3. Sista utväg: utgåva utan giltighetsperioder alls
   return sheets.find((s) => sheetPeriods(s).length === 0) ?? null;
 }
 

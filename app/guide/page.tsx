@@ -205,6 +205,14 @@ export default function GuidePage() {
               <span><strong className="text-purple-300">Lila prick</strong> — pass som inte är markerat som arbetat.</span>
             </li>
             <li className="flex items-start gap-2">
+              <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />
+              <span>
+                <strong className="text-red-300">AO!</strong> — AO saknar pass den dagen trots att lönespecen har
+                tid bokförd. En dag utan AO ska egentligen vara övertid, så timmarna räknas inte som vanlig
+                arbetstid — de visas bara så att du kan ta upp det. Klicka på pricken om du ändå vill räkna med dagen.
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
               <span className="mt-[0.3rem] h-2.5 w-2.5 shrink-0 rounded-full bg-yellow-400" />
               <span>
                 <strong className="text-yellow-300">VAB</strong> — vård av barn från specen, med timmarna i gult.

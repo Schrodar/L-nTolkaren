@@ -620,6 +620,27 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     return `${dateISO}::${idx}`;
   }
 
+  /**
+   * Växlar en dag som saknar AO-pass mellan markerad och omarkerad.
+   * Importen räknar aldrig sådana dagar som vanlig arbetstid — det här är
+   * användarens egen markering när hen ändå vill ha med timmarna.
+   */
+  function toggleDayWithoutAo(dateISO: string, hours: number) {
+    const wasActive = manualActiveDates.has(dateISO);
+    setManualActiveDates((prev) => {
+      const next = new Set(prev);
+      if (wasActive) next.delete(dateISO);
+      else next.add(dateISO);
+      return next;
+    });
+    setManualHoursByDate((prev) => {
+      const next = { ...prev };
+      if (wasActive) delete next[dateISO];
+      else next[dateISO] = hours;
+      return next;
+    });
+  }
+
   function toggleShift(key: string) {
     setActiveShifts((prev) => {
       const next = new Set(prev);
@@ -787,12 +808,6 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setVabByDate(newVab);
     setVabSekByDate(ov.art81001?.sekByDateISO ?? {});
 
-    const vabDates = new Set<string>([
-      ...Object.keys(newVab),
-      ...(ov.art810?.datesISO ?? []),
-      ...(ov.art81001?.datesISO ?? []),
-    ]);
-
     // Plustid (art483): när årsarbetstidstaket (5 × månadens dagar) nås
     // klipps ordinarie tid (art315) den dagen och resten bokförs som plustid.
     // Verklig arbetstid för dagen = art315 + art483 — det är den summan som
@@ -825,18 +840,18 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         const arbetad = totalWorked - (newVab[iso] ?? 0);
         if (arbetad > 0.03) newArbetad[iso] = arbetad;
 
-        // Utgåva per dag — en spec kan spänna över ett säsongsbyte, och
-        // enskilda dagar kan ha en annan båt än månadens
-        const daySheets = sheetsByBoat[boatForDate(iso)] ?? EMPTY_SHEETS;
-        if (pickEditionForDate(daySheets, iso)) {
-          // Lönespecens timmar är summan per dag. Vid på/avmönstring har AO
-          // två pass samma dag — specen kan motsvara ena passet, andra passet
-          // eller båda. Hitta den delmängd av passen vars summa stämmer.
-          const { perShift, aoHours, matched: matchedShifts } = matchDayAgainstAo(
-            resolveDay(iso),
-            totalWorked,
-          );
+        // Lönespecens timmar är summan per dag. Vid på/avmönstring har AO
+        // två pass samma dag — specen kan motsvara ena passet, andra passet
+        // eller båda. Hitta den delmängd av passen vars summa stämmer.
+        const { perShift, aoHours, matched: matchedShifts } = matchDayAgainstAo(
+          resolveDay(iso),
+          totalWorked,
+        );
 
+        // Saknar dagen AO-pass finns inget att jämföra mot — varken för att
+        // ingen utgåva täcker datumet (glapp mellan säsonger) eller för att
+        // utgåvan saknar schema just den dagen.
+        if (perShift.length > 0) {
           if (matchedShifts) {
             for (const i of matchedShifts) {
               newActiveShifts.add(shiftKey(iso, i));
@@ -844,21 +859,20 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             newConfirmed[iso] = true;
           } else {
             newDeviations[iso] = { payslipH: totalWorked, aoH: aoHours };
-            if (perShift.length > 0) {
-              newActiveShifts.add(shiftKey(iso, 0));
-            }
+            newActiveShifts.add(shiftKey(iso, 0));
           }
           // Rensa ev. kvarliggande bokförd tid från tidigare import utan AO
           // — med AO laddat representeras dagen av sina pass.
           delete newManual[iso];
           newManualActive.delete(iso);
         } else {
-          // Ingen AO-utgåva täcker dagen (t.ex. glapp mellan säsonger) —
-          // skriv in som bokförd tid och aktivera dagen
-          if (totalWorked > 0) {
-            newManual[iso] = totalWorked;
-            newManualActive.add(iso);
-          }
+          // AO saknar pass för dagen. Flagga det som ett fel och visa vad
+          // specen säger — timmarna skrivs INTE in som vanlig arbetstid.
+          // En dag utan AO ska egentligen vara övertid, och att tyst bokföra
+          // den som ordinarie tid skulle dölja felet.
+          newDeviations[iso] = { payslipH: totalWorked, aoH: 0 };
+          delete newManual[iso];
+          newManualActive.delete(iso);
         }
       }
       setActiveShifts(newActiveShifts);
@@ -1292,6 +1306,17 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         const dayBoatName = boatNameForDate(dateISO);
                         const boatOverridden = Boolean(boatByDate[dateISO]);
 
+                        // Dag utan AO-pass men med timmar från lönespecen —
+                        // ska gå att markera som jobbad ändå
+                        const specHoursForDay =
+                          (manualHoursByDate[dateISO] ?? 0) ||
+                          (arbetadByDate[dateISO] ?? 0) ||
+                          (deviation?.payslipH ?? 0);
+                        const aoMissing =
+                          shiftHours.length === 0 &&
+                          !semesterByDate[dateISO] &&
+                          (specHoursForDay > 0 || (overtimeByDate[dateISO] ?? 0) > 0);
+
                         // Bokförd tid (inskriven av kontoret) stämmer med
                         // avtalstiden → lila bock. Samma delmängdsmatchning
                         // som för lönespecen (hanterar på/avmönstring).
@@ -1335,7 +1360,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 : anyActive ? 'ring-1 ring-inset ring-green-400/50' : '',
                             ].join(' ')}
                             title={
-                              deviation
+                              aoMissing && deviation
+                                ? `AO saknar pass denna dag. Lönespecen har ${fmtPayslipHours(deviation.payslipH)} h bokförd — en dag utan AO ska egentligen vara övertid, så timmarna räknas inte som vanlig arbetstid här.`
+                                : deviation
                                 ? `Lönespec: ${fmtPayslipHours(deviation.payslipH)} h${
                                     (plusByDate[dateISO] ?? 0) > 0
                                       ? ` (${fmtPayslipHours(deviation.payslipH - plusByDate[dateISO])} + ${fmtPayslipHours(plusByDate[dateISO])} plustid)`
@@ -1346,6 +1373,29 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 : undefined
                             }
                           >
+                            {aoMissing && (
+                              <div className="absolute right-0 top-0 flex flex-col">
+                                <span
+                                  role="button"
+                                  aria-label={manualActiveDates.has(dateISO) ? 'Avmarkera' : 'Markera som jobbad'}
+                                  title={
+                                    manualActiveDates.has(dateISO)
+                                      ? 'Dagen räknas som jobbad — klicka för att ta bort'
+                                      : 'AO saknar pass. Klicka för att räkna dagen som jobbad med lönespecens timmar.'
+                                  }
+                                  onClick={(e) => { e.stopPropagation(); toggleDayWithoutAo(dateISO, specHoursForDay); }}
+                                  className={[
+                                    'flex h-6 w-6 items-center justify-center rounded-bl-lg transition-colors',
+                                    manualActiveDates.has(dateISO) ? 'bg-green-400/20' : 'bg-white/5 hover:bg-white/10',
+                                  ].join(' ')}
+                                >
+                                  <span className={[
+                                    'h-2.5 w-2.5 rounded-full transition-colors',
+                                    manualActiveDates.has(dateISO) ? 'bg-green-400' : 'bg-purple-400/60',
+                                  ].join(' ')} />
+                                </span>
+                              </div>
+                            )}
                             {shiftHours.length > 0 && (
                               <div className="absolute right-0 top-0 flex flex-col">
                                 {shiftHours.map((_, i) => {
@@ -1377,6 +1427,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               <span className="text-base font-medium">{format(date, 'd')}</span>
                               {isException && (
                                 <span className="rounded bg-amber-200/30 px-1 text-[10px] text-amber-100" title="Avvikande schema denna dag enligt AO-schemat.">Avv</span>
+                              )}
+                              {aoMissing && (
+                                <span
+                                  className="rounded bg-red-500/25 px-1 text-[9px] leading-tight text-red-200"
+                                  title="AO saknar pass för denna dag, men lönespecen har tid bokförd. En dag utan AO ska egentligen vara övertid — timmarna räknas därför inte som vanlig arbetstid här. Klicka på pricken om du ändå vill räkna dagen som jobbad."
+                                >
+                                  AO!
+                                </span>
                               )}
                               {confirmed && (
                                 <span className="rounded bg-green-500/25 px-1 text-[10px] leading-tight text-green-300" title="Lönespec stämmer med AO-schemat.">✓</span>
@@ -1446,7 +1504,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                               <span
                                 className={[
                                   'text-[11px] font-semibold leading-none',
-                                  specOverAo ? 'text-emerald-300' : 'text-red-400',
+                                  // Saknas AO är alltid ett fel att uppmärksamma,
+                                  // aldrig "mer än AO" i grönt
+                                  aoMissing || !specOverAo ? 'text-red-400' : 'text-emerald-300',
                                 ].join(' ')}
                               >
                                 {fmtPayslipHours(deviation.payslipH)} h löns.
@@ -1804,16 +1864,6 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         dateISO={selectedDateISO}
         resolvedDay={selectedResolvedDay}
         tidEnlKollAvt={selectedDayTidEnl}
-        manualHours={selectedDateISO ? (manualHoursByDate[selectedDateISO] ?? 0) : 0}
-        onManualHoursChange={(h) => {
-          if (!selectedDateISO) return;
-          setManualHoursByDate((prev) => ({ ...prev, [selectedDateISO]: h }));
-        }}
-        overtime={selectedDateISO ? (overtimeByDate[selectedDateISO] ?? 0) : 0}
-        onOvertimeChange={(h) => {
-          if (!selectedDateISO) return;
-          setOvertimeByDate((prev) => ({ ...prev, [selectedDateISO]: h }));
-        }}
         traktamente={selectedDateISO ? traktamenteDates.has(selectedDateISO) : false}
         onTraktamenteChange={(on) => {
           if (!selectedDateISO) return;
