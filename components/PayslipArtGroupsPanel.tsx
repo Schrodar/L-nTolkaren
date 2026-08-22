@@ -20,11 +20,20 @@ function weekdayMonFirst(date: Date) {
   return (d + 6) % 7;
 }
 
+/**
+ * Långdagsgräns enligt §5.2 i skärgårdsavtalet: "arbetstid som överstiger
+ * 10,5 timmar per dygn ersätts med 0,4 timmar utöver ordinarie arbetstid
+ * (långdagsersättning/-tillägg)". Tillägget bokförs som art K315 på specen.
+ */
+const LANGDAG_GRANS_H = 10.5;
+const LANGDAG_FAKTOR = 0.4;
+
 function MonthCalendar({
   monthISO,
   overtimeBreakdownByDayISO,
   workDaysISO,
   workHoursByDayISO,
+  plusHoursByDayISO,
   art302DatesISO,
   art302BreakdownByDayISO,
   sicknessDaysISO,
@@ -46,6 +55,7 @@ function MonthCalendar({
   >;
   workDaysISO?: string[];
   workHoursByDayISO?: Record<string, number>;
+  plusHoursByDayISO?: Record<string, number>;
   art302DatesISO?: string[];
   art302BreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
   sicknessDaysISO?: string[];
@@ -66,9 +76,16 @@ function MonthCalendar({
     () => overtimeBreakdownByDayISO ?? {},
     [overtimeBreakdownByDayISO],
   );
+  // Plustid (art483) — tid över årsarbetstidstaket. En dag som i sin helhet
+  // ligger över taket saknar art315-rad helt, men är förstås en arbetsdag
+  // ändå och ska markeras som en vanlig dag i kalendern.
+  const plusHoursByDay = React.useMemo(
+    () => plusHoursByDayISO ?? {},
+    [plusHoursByDayISO],
+  );
   const workSet = React.useMemo(
-    () => new Set(workDaysISO ?? []),
-    [workDaysISO],
+    () => new Set([...(workDaysISO ?? []), ...Object.keys(plusHoursByDay)]),
+    [workDaysISO, plusHoursByDay],
   );
   const art302Set = React.useMemo(
     () => new Set(art302DatesISO ?? []),
@@ -227,11 +244,19 @@ function MonthCalendar({
     );
   }, [selectedISO, vabSet, vabBreakdown]);
 
-  const selectedWorkHours = React.useMemo(() => {
+  const selectedPlusHours = React.useMemo(() => {
     if (!selectedISO) return 0;
-    const hours = workHoursByDay[selectedISO];
+    const hours = plusHoursByDay[selectedISO];
     return typeof hours === 'number' && Number.isFinite(hours) ? hours : 0;
-  }, [selectedISO, workHoursByDay]);
+  }, [selectedISO, plusHoursByDay]);
+
+  /** Verklig arbetstid för dagen = nominell tid (315) + plustid (483). */
+  const selectedWorkHours = React.useMemo(() => {
+    const hours = selectedISO ? workHoursByDay[selectedISO] : undefined;
+    const nominell =
+      typeof hours === 'number' && Number.isFinite(hours) ? hours : 0;
+    return nominell + selectedPlusHours;
+  }, [selectedISO, workHoursByDay, selectedPlusHours]);
 
   const selectedArt302 = React.useMemo(() => {
     if (!selectedISO) return null;
@@ -306,12 +331,12 @@ function MonthCalendar({
   const overtimeCount = Object.keys(breakdown).filter(
     (d) => d.startsWith(monthISO) && minutesForISO(d).total > 0,
   ).length;
-  const workCount = (workDaysISO ?? []).filter((d) =>
+  const workCount = Array.from(workSet).filter((d) =>
     d.startsWith(monthISO),
   ).length;
   const markedCount = new Set([
     ...Object.keys(breakdown).filter((d) => minutesForISO(d).total > 0),
-    ...(workDaysISO ?? []),
+    ...workSet,
     ...(art302DatesISO ?? []),
     ...(sicknessDaysISO ?? []),
     ...(semesterDaysISO ?? []),
@@ -802,7 +827,7 @@ function MonthCalendar({
             {selectedHasWorkDay ? (
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <div className="text-xs font-semibold text-gray-700">
-                  Arbete (315)
+                  Arbete ({selectedPlusHours > 0 ? '315 + 483' : '315'})
                 </div>
                 <div className="mt-1 text-sm text-gray-700">
                   Timmar som har registrerats denna dag (summa):{' '}
@@ -810,6 +835,16 @@ function MonthCalendar({
                     {fmtHours.format(selectedWorkHours)} h
                   </span>
                 </div>
+                {selectedPlusHours > 0 ? (
+                  <div className="mt-1 text-xs text-gray-600">
+                    Varav{' '}
+                    <span className="tabular-nums font-semibold text-gray-900">
+                      {fmtHours.format(selectedPlusHours)} h
+                    </span>{' '}
+                    plustid (483) — tid över årsarbetstidstaket (5 h ×
+                    månadens dagar).
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -929,6 +964,7 @@ export function PayslipArtGroupsPanel({
       set.add('810');
       set.add('81001');
     }
+    if (overview.art81103) set.add('81103');
 
     // Summary cards that aggregate multiple arts.
     if (overview.fackforeningsavgift) {
@@ -1068,11 +1104,62 @@ export function PayslipArtGroupsPanel({
   const friskvard = overview.friskvard;
 
   const art81001 = overview.art81001;
+  const art81103 = overview.art81103;
   const artK315 = overview.artK315;
   const art483 = overview.art483;
   const art483TotalMinutes = art483 ? Math.round(art483.hoursTotal * 60) : 0;
   const art483Hours = Math.floor(art483TotalMinutes / 60);
   const art483Minutes = Math.abs(art483TotalMinutes % 60);
+
+  const dayLabelFmt = React.useMemo(
+    () => new Intl.DateTimeFormat('sv-SE', { day: 'numeric', month: 'short' }),
+    [],
+  );
+
+  /**
+   * Långdagar — dygn med mer än 10,5 h arbetad tid. Dagarna räknas fram ur
+   * specens egna timmar (verklig arbetstid = nominell tid 315 + plustid 483)
+   * och det förväntade tillägget jämförs mot K315-raderna, så att ett uteblivet
+   * eller felräknat långdagstillägg syns.
+   */
+  const langdagar = React.useMemo(() => {
+    const nominell = art315?.hoursByDateISO ?? {};
+    const plus = art483?.hoursByDateISO ?? {};
+    const utbetaltByDate = artK315?.hoursByDateISO ?? {};
+
+    const rows = Array.from(
+      new Set([...Object.keys(nominell), ...Object.keys(plus)]),
+    )
+      .sort()
+      .map((iso) => {
+        const arbetad = (nominell[iso] ?? 0) + (plus[iso] ?? 0);
+        const over = arbetad - LANGDAG_GRANS_H;
+        return {
+          iso,
+          arbetad,
+          over,
+          // Specen avrundar tillägget per dag till två decimaler — gör likadant
+          // så att summan går att jämföra rakt av.
+          berakning: Math.round(over * LANGDAG_FAKTOR * 100) / 100,
+          utbetalt: utbetaltByDate[iso] ?? 0,
+        };
+      })
+      .filter((r) => r.over > 0.005);
+
+    const overTotal = rows.reduce((sum, r) => sum + r.over, 0);
+    const berakningTotal = rows.reduce((sum, r) => sum + r.berakning, 0);
+    const avvikande = rows.filter(
+      (r) => Math.abs(r.berakning - r.utbetalt) > 0.005,
+    );
+
+    return {
+      rows,
+      overTotal,
+      berakningTotal: Math.round(berakningTotal * 100) / 100,
+      utbetaltTotal: artK315?.hoursTotal ?? 0,
+      avvikande,
+    };
+  }, [art315, art483, artK315]);
 
   const moneyOverview = React.useMemo(() => {
     const items: Array<{ label: string; amount: number; count?: number }> = [];
@@ -1121,6 +1208,11 @@ export function PayslipArtGroupsPanel({
       { count: art81001?.rowsCount },
     );
     pushIfNumber(
+      'Föräldraledighet, lång (81103)',
+      art81103?.sekTotal,
+      { count: art81103?.rowsCount },
+    );
+    pushIfNumber(
       'Sjukdom karens (80001)',
       art80001?.sekTotalFromRow ?? art80001?.sekTotalComputed ?? null,
     );
@@ -1154,6 +1246,9 @@ export function PayslipArtGroupsPanel({
     artK7022?.sekTotal,
     art81001?.sekTotalComputed,
     art81001?.sekTotalFromRow,
+    art81001?.rowsCount,
+    art81103?.sekTotal,
+    art81103?.rowsCount,
     art80001?.sekTotalComputed,
     art80001?.sekTotalFromRow,
     art9001?.sekTotal,
@@ -1358,6 +1453,7 @@ export function PayslipArtGroupsPanel({
               overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
               workDaysISO={art315?.datesISO ?? []}
               workHoursByDayISO={art315?.hoursByDateISO}
+              plusHoursByDayISO={art483?.hoursByDateISO}
               art302DatesISO={art302DatesISO}
               art302BreakdownByDayISO={art302BreakdownByDayISO}
               sicknessDaysISO={sicknessDaysISO}
@@ -1415,6 +1511,87 @@ export function PayslipArtGroupsPanel({
                   </>
                 )}
 
+                {(artK315 || langdagar.rows.length > 0) && (
+                  <>
+                    <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-gray-600">Långdagstillägg (K315)</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {formatHours(langdagar.utbetaltTotal)} h
+                      </div>
+                    </div>
+
+                    <div className="mt-1 space-y-0.5 text-xs text-gray-500">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Långdagar (över 10,5 h)</span>
+                        <span className="tabular-nums">
+                          {formatInt(langdagar.rows.length)} st
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Tid över 10,5 h</span>
+                        <span className="tabular-nums">
+                          {formatHours(langdagar.overTotal)} h
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Beräknat tillägg (0,4 ×)</span>
+                        <span className="tabular-nums">
+                          {formatHours(langdagar.berakningTotal)} h
+                        </span>
+                      </div>
+                    </div>
+
+                    {langdagar.rows.length > 0 && (
+                      <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/70">
+                        {langdagar.rows.map((r) => {
+                          const avviker =
+                            Math.abs(r.berakning - r.utbetalt) > 0.005;
+                          return (
+                            <div
+                              key={r.iso}
+                              className={[
+                                'flex items-center justify-between gap-2 px-2 py-1 text-xs',
+                                avviker ? 'text-red-700' : 'text-gray-600',
+                              ].join(' ')}
+                              title={`${r.iso}: ${formatHours(r.arbetad)} h arbetad tid, ${formatHours(r.over)} h över 10,5 h`}
+                            >
+                              <span className="w-14 shrink-0">
+                                {dayLabelFmt.format(
+                                  new Date(`${r.iso}T12:00:00`),
+                                )}
+                              </span>
+                              <span className="tabular-nums text-gray-500">
+                                {formatHours(r.arbetad)} h
+                              </span>
+                              <span className="tabular-nums font-semibold">
+                                +{formatHours(r.utbetalt)} h
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="mt-1 text-xs text-gray-500">
+                      Arbetstid över 10,5 h per dygn ersätts med 0,4 h utöver
+                      ordinarie tid (§5.2).{' '}
+                      {langdagar.rows.length === 0 ? null : langdagar.avvikande
+                          .length === 0 ? (
+                        <span className="text-emerald-700">
+                          Specen stämmer med beräkningen.
+                        </span>
+                      ) : (
+                        <span className="text-red-700">
+                          {formatInt(langdagar.avvikande.length)} dag
+                          {langdagar.avvikande.length === 1 ? '' : 'ar'} avviker
+                          från beräkningen — markerade i rött ovan.
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+
                 <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
 
                 <div className="flex items-center justify-between gap-3">
@@ -1437,14 +1614,6 @@ export function PayslipArtGroupsPanel({
                   </div>
                 </div>
 
-                <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
-
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-gray-600">Långdagstillägg (K315)</div>
-                  <div className="tabular-nums font-semibold text-gray-900">
-                    {artK315 ? `${formatHours(artK315.hoursTotal)} h` : '–'}
-                  </div>
-                </div>
               </div>
 
               <div className="mt-2 text-xs text-gray-500">

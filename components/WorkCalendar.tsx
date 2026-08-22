@@ -197,6 +197,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   // komp-övertid (art311/312 från lönespec)
   const [kompHoursWeekday, setKompHoursWeekday] = React.useState(0);
   const [kompHoursWeekend, setKompHoursWeekend] = React.useState(0);
+  // komptid per datum — visas i kalendern. Art31101/31201 är art311/312 efter
+  // 1,4-omräkningen, alltså timmarna som faktiskt krediteras kompsaldot, och
+  // ersätter basraden för samma datum så att inget dubbelräknas.
+  const [kompByDate, setKompByDate] = React.useState<Record<string, number>>({});
   // laborera: ta ut komp-övertiden kontant (ingår då i bruttolönen)
   const [kompPayout, setKompPayout] = React.useState(false);
   // sjukdagar (art80001)
@@ -430,6 +434,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     setOvertimeByDate(saved?.overtimeByDate ?? {});
     setKompHoursWeekday(saved?.kompHoursWeekday ?? 0);
     setKompHoursWeekend(saved?.kompHoursWeekend ?? 0);
+    setKompByDate(saved?.kompByDate ?? {});
     setSjukByDate(saved?.sjukByDate ?? {});
     setSemesterByDate(saved?.semesterByDate ?? {});
     setManualActiveDates(new Set(saved?.manualActiveDates ?? []));
@@ -461,6 +466,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         traktamenteDates.size === 0 &&
         Object.keys(boatByDate).length === 0 &&
         Object.keys(vabByDate).length === 0 &&
+        Object.keys(kompByDate).length === 0 &&
         kompHoursWeekday === 0 && kompHoursWeekend === 0) return;
     saveMonth({
       monthISO,
@@ -471,6 +477,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       overtimeByDate,
       kompHoursWeekday,
       kompHoursWeekend,
+      kompByDate,
       kompPayout,
       sjukByDate,
       semesterByDate,
@@ -485,7 +492,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       arbetadByDate,
       savedAt: new Date().toISOString(),
     });
-  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, traktamenteDates, natthamnByDate, boatByDate, vabByDate, vabSekByDate, arbetadByDate, kompHoursWeekday, kompHoursWeekend, kompPayout, selectedBoat, selectedMode, monthISO, loadedMonth, saveMonth]);
+  }, [activeShifts, manualHoursByDate, overtimeByDate, sjukByDate, semesterByDate, manualActiveDates, maskinByDate, plusByDate, traktamenteDates, natthamnByDate, boatByDate, vabByDate, vabSekByDate, arbetadByDate, kompHoursWeekday, kompHoursWeekend, kompByDate, kompPayout, selectedBoat, selectedMode, monthISO, loadedMonth, saveMonth]);
 
   const selectedDayTidEnl = React.useMemo(
     () => (selectedResolvedDay ? calcTidEnlKollAvtHours(selectedResolvedDay) : null),
@@ -815,16 +822,22 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     const newPlus = ov.art483?.hoursByDateISO ?? {};
     setPlusByDate(newPlus);
 
-    // Ordinarie tid (art315) — och VAB-dagar, som kan sakna art315-rad helt
+    // Ordinarie tid (art315) — och dagar som helt saknar art315-rad: VAB-dagar
+    // samt dagar som i sin helhet ligger över årsarbetstidstaket och därför
+    // bara har en art483-rad (typiskt i slutet av en månad där taket nåtts).
     const arbetadHours = ov.art315?.hoursByDateISO;
-    if (arbetadHours || Object.keys(newVab).length > 0) {
+    if (arbetadHours || Object.keys(newPlus).length > 0 || Object.keys(newVab).length > 0) {
       const newManual = { ...semManual };
       const newActiveShifts = new Set(activeShifts);
       const newManualActive = new Set(manualActiveDates);
       const newArbetad: Record<string, number> = {};
 
       const dagar = Array.from(
-        new Set([...Object.keys(arbetadHours ?? {}), ...Object.keys(newVab)]),
+        new Set([
+          ...Object.keys(arbetadHours ?? {}),
+          ...Object.keys(newPlus),
+          ...Object.keys(newVab),
+        ]),
       ).sort();
 
       for (const iso of dagar) {
@@ -898,7 +911,9 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
     setOvertimeByDate(mergedOt);
 
-    // Komp-övertid (art311 vardag, art312 helg) — sparas separat
+    // Komp-övertid (art311 vardag, art312 helg) — månadssummorna räknas på
+    // basarterna precis som förut, så att kompvärdet i löneberäkningen är
+    // oförändrat.
     let kompWd = 0;
     let kompWe = 0;
     if (ov.art311?.hoursByDateISO) {
@@ -913,6 +928,40 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     }
     setKompHoursWeekday(kompWd);
     setKompHoursWeekend(kompWe);
+
+    // Komptid per datum för kalendern. Art31101/31201 ("övertid, omräkning")
+    // är basarten gånger 1,4 på samma datum — det som krediteras kompsaldot.
+    // De ersätter därför basraden för dagen i stället för att adderas.
+    const hoursFromMinutes = (minutes?: Record<string, number>) =>
+      Object.fromEntries(
+        Object.entries(minutes ?? {}).map(([iso, min]) => [iso, min / 60]),
+      );
+    const pickKomp = (
+      bas?: Record<string, number>,
+      omraknad?: Record<string, number>,
+    ) => {
+      const out: Record<string, number> = {};
+      for (const [iso, hours] of Object.entries(bas ?? {})) {
+        if (hours > 0) out[iso] = hours;
+      }
+      for (const [iso, hours] of Object.entries(omraknad ?? {})) {
+        if (hours > 0) out[iso] = hours;
+      }
+      return out;
+    };
+    const newKomp: Record<string, number> = {};
+    for (const src of [
+      pickKomp(ov.art311?.hoursByDateISO, ov.art31101?.hoursByDateISO),
+      pickKomp(
+        ov.art312?.hoursByDateISO,
+        hoursFromMinutes(ov.art31201?.minutesByDateISO),
+      ),
+    ]) {
+      for (const [iso, hours] of Object.entries(src)) {
+        newKomp[iso] = (newKomp[iso] ?? 0) + hours;
+      }
+    }
+    setKompByDate(newKomp);
 
     // Sjukdagar (art80001)
     const mergedSjuk: Record<string, number> = {};
@@ -985,7 +1034,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       Object.fromEntries(Object.entries(obj).filter(([iso]) => !dateSet.has(iso)));
 
     const ps = loadPayslip(monthISO);
-    const spec = ps?.overview.art315?.hoursByDateISO;
+    const spec = ps?.overview.art315?.hoursByDateISO ?? {};
     const plus = ps?.overview.art483?.hoursByDateISO ?? {};
     const vabDates = new Set<string>([
       ...(ps?.overview.art810?.datesISO ?? []),
@@ -996,14 +1045,14 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     const newDeviations: Record<string, { payslipH: number; aoH: number }> = {};
     const newConfirmed: Record<string, boolean> = {};
 
-    if (spec) {
+    if (ps) {
       for (const iso of dates) {
         if (semesterByDate[iso] || vabDates.has(iso)) continue;
-        const hours = spec[iso];
-        if (hours === undefined) continue;
+        // En dag helt över taket saknar art315 — hela dagen ligger som plustid.
+        const totalWorked = (spec[iso] ?? 0) + (plus[iso] ?? 0);
+        if (totalWorked <= 0) continue;
         if (!pickEditionForDate(daySheets, iso)) continue;
 
-        const totalWorked = hours + (plus[iso] ?? 0);
         const { perShift, aoHours, matched } = matchDayAgainstAo(
           resolveDayFromSheets(daySheets, selectedMode, iso),
           totalWorked,
@@ -1557,6 +1606,15 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                                 <span className="text-[10px] font-normal opacity-70">öt.</span>
                               </span>
                             )}
+                            {(kompByDate[dateISO] ?? 0) > 0 && (
+                              <span
+                                className="mt-0.5 block text-[12px] font-semibold leading-none text-teal-300/80"
+                                title="Komp-övertid enligt lönespecen (art31101/31201 = art311/312 × 1,4 — timmarna som krediteras kompsaldot). Betalas inte ut kontant om du inte väljer det i sammanställningen."
+                              >
+                                {fmtHours(kompByDate[dateISO])} h{' '}
+                                <span className="text-[10px] font-normal opacity-70">komp</span>
+                              </span>
+                            )}
                             {(sjukByDate[dateISO] ?? 0) > 0 && (
                               <span className="mt-0.5 block text-[12px] font-semibold leading-none text-orange-400/80">
                                 {fmtHours(sjukByDate[dateISO])} h{' '}
@@ -1575,7 +1633,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         </div>
       </section>
 
-      {(activeShifts.size > 0 || savedShiftCount > 0 || manualActiveDates.size > 0 || maskinByDate.size > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || Object.values(vabByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
+      {(activeShifts.size > 0 || savedShiftCount > 0 || manualActiveDates.size > 0 || maskinByDate.size > 0 || Object.values(manualHoursByDate).some((h) => h > 0) || Object.values(overtimeByDate).some((h) => h > 0) || Object.values(kompByDate).some((h) => h > 0) || Object.values(sjukByDate).some((h) => h > 0) || Object.values(vabByDate).some((h) => h > 0) || kompHoursWeekday > 0 || kompHoursWeekend > 0) && (() => {
         const totalPass = savedShiftCount + activeShifts.size;
         const totalHours = savedHours + totalActiveHours;
 

@@ -42,12 +42,18 @@ export type ArtSummary301 = {
   sekByDateISO: Record<string, number>;
 };
 
+/**
+ * 31101 "Övertid, omräkning okvalificerad" — art311 efter 1,4-omräkningen,
+ * alltså komptiden som faktiskt krediteras kompsaldot (311 × 1,4 per datum).
+ * Samma timmar som 311, inte ny tid: den som visar båda dubbelräknar.
+ */
 export type ArtSummary31101 = {
   art: '31101';
   totalMinutes: number;
   datesISO: string[];
   monthISO: string | null;
   minutesByDateISO: Record<string, number>;
+  hoursByDateISO: Record<string, number>;
 };
 
 export type ArtSummary312 = {
@@ -230,6 +236,20 @@ export type ArtSummary81001 = {
   sekByDateISO: Record<string, number>;
 };
 
+export type ArtSummary81103 = {
+  art: '81103';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  /** Antal kalenderdagar ("Kald") frånvaron omfattar. */
+  daysTotal: number;
+  /** Avdrag per dag enligt specen (1/30 av månadslönen), negativt. */
+  sekPerDay: number | null;
+  /** Totalt löneavdrag, negativt. */
+  sekTotal: number;
+  sekByDateISO: Record<string, number>;
+};
+
 export type ArtSummary80001 = {
   art: '80001';
   rowsCount: number;
@@ -256,6 +276,7 @@ export type PayslipArtOverview = {
   art700?: ArtSummary700;
   art810?: ArtSummary810;
   art81001?: ArtSummary81001;
+  art81103?: ArtSummary81103;
   art80001?: ArtSummary80001;
   art2101?: ArtSummary2101;
   art483?: ArtSummary483;
@@ -312,6 +333,44 @@ function extractAllSwedishNumbers(text: string): number[] {
     if (typeof n === 'number') out.push(n);
   }
   return out;
+}
+
+/**
+ * 81103 "Föräldraledighet, lång" — avdrag i kalenderdagar i stället för timmar:
+ *   "81103 Föräldraledighet, lång 2026-07-17 - 2026-07-19 3,00 Kald -1 236,67 -3 710,01"
+ * dvs. <dagar> Kald <avdrag per dag> <totalt avdrag>. Beloppen är negativa på
+ * specen och tas därifrån rakt av — ingen egen framräkning.
+ */
+function parse81103FromRawRow(raw: string): {
+  dateFrom: string;
+  dateTo: string;
+  days: number;
+  sekPerDay?: number;
+  sekTotalFromRow?: number;
+} | null {
+  const s = normalizeSpaces(raw);
+  const dm = s.match(/(\d{4}-\d{2}-\d{2})\s*-\s*(\d{4}-\d{2}-\d{2})/);
+  if (!dm || dm.index == null) return null;
+
+  const after = s.slice(dm.index + dm[0].length).trim();
+  if (!after) return null;
+
+  // Procentsatser förekommer på frånvarorader och ska inte tolkas som belopp.
+  const nums = extractAllSwedishNumbers(
+    after.replace(/[-+]?\d[\d\s]*,\d{1,2}\s*%/g, ' '),
+  );
+  if (!nums.length) return null;
+
+  const [days, ...rest] = nums;
+  if (!Number.isFinite(days)) return null;
+
+  return {
+    dateFrom: dm[1],
+    dateTo: dm[2],
+    days,
+    sekPerDay: rest.length >= 2 ? rest[0] : undefined,
+    sekTotalFromRow: rest.length ? rest[rest.length - 1] : undefined,
+  };
 }
 
 function parse9001TabellskattFromRawRow(raw: string): number | null {
@@ -884,6 +943,7 @@ export function summarizePayslipArtGroups(
   const art700Group = artGroups.find((g) => g.art === '700');
   const art810Group = artGroups.find((g) => g.art === '810');
   const art81001Group = artGroups.find((g) => g.art === '81001');
+  const art81103Group = artGroups.find((g) => g.art === '81103');
   const art80001Group = artGroups.find((g) => g.art === '80001');
   const art320Group = artGroups.find((g) => g.art === '320');
   const art2101Group = artGroups.find((g) => g.art === '2101');
@@ -1124,6 +1184,7 @@ export function summarizePayslipArtGroups(
     let totalMinutes = 0;
     const dates = new Set<string>();
     const minutesByDateISO: Record<string, number> = {};
+    const hoursByDateISO31101: Record<string, number> = {};
 
     for (const row of art31101Group.rows) {
       const parsed = parseArtRow(row);
@@ -1139,9 +1200,11 @@ export function summarizePayslipArtGroups(
       totalMinutes += minutesTotal;
 
       const perDay = Math.round(minutesTotal / expanded.length);
+      const hoursPerDay = hours / expanded.length;
       for (const d of expanded) {
         dates.add(d);
         minutesByDateISO[d] = (minutesByDateISO[d] ?? 0) + perDay;
+        hoursByDateISO31101[d] = (hoursByDateISO31101[d] ?? 0) + hoursPerDay;
       }
     }
 
@@ -1155,6 +1218,7 @@ export function summarizePayslipArtGroups(
       datesISO,
       monthISO,
       minutesByDateISO,
+      hoursByDateISO: hoursByDateISO31101,
     };
   }
 
@@ -1488,6 +1552,65 @@ export function summarizePayslipArtGroups(
 
   // 80001: Sjukdom karenstillfälle (tim) → datumintervall + timmar + timbelopp + total.
   // Exempelrad: "80001 Sjukdom karenstillfälle 2025-12-07 - 2025-12-07 5,17 Tim -224,64 -1 161,41"
+  // 81103: Föräldraledighet, lång → kalenderdagar + löneavdrag från specen
+  if (art81103Group?.rows?.length) {
+    let daysTotal = 0;
+    let sekTotal = 0;
+    let sekPerDay: number | null = null;
+    const sameRateEps = 0.005;
+
+    const dates = new Set<string>();
+    const sekByDateISO: Record<string, number> = {};
+
+    for (const row of art81103Group.rows) {
+      const parsed = parse81103FromRawRow(row);
+      if (!parsed) continue;
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      daysTotal += parsed.days;
+
+      const rate =
+        typeof parsed.sekPerDay === 'number' && Number.isFinite(parsed.sekPerDay)
+          ? parsed.sekPerDay
+          : null;
+      if (rate != null) {
+        if (sekPerDay == null) sekPerDay = rate;
+        else if (Math.abs(sekPerDay - rate) > sameRateEps) sekPerDay = null;
+      }
+
+      // Beloppet står på raden; annars härleds det ur á-priset.
+      const totalForRow =
+        typeof parsed.sekTotalFromRow === 'number' &&
+        Number.isFinite(parsed.sekTotalFromRow)
+          ? parsed.sekTotalFromRow
+          : rate != null
+          ? parsed.days * rate
+          : 0;
+      sekTotal += totalForRow;
+
+      const perDaySek = totalForRow / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        sekByDateISO[d] = (sekByDateISO[d] ?? 0) + perDaySek;
+      }
+    }
+
+    const datesISO = Array.from(dates).sort();
+
+    overview.art81103 = {
+      art: '81103',
+      rowsCount: art81103Group.rows.length,
+      datesISO,
+      monthISO: pickBestMonthISO(datesISO),
+      daysTotal,
+      sekPerDay,
+      sekTotal: Math.round(sekTotal * 100) / 100,
+      sekByDateISO,
+    };
+  }
+
   if (art80001Group?.rows?.length) {
     let hoursTotal = 0;
     let sekTotalComputed = 0;

@@ -57,6 +57,7 @@ export type SavedMonth = {
   overtimeByDate: Record<string, number>;        // övertidstimmar per datum
   kompHoursWeekday: number;                      // komp-övertid vardag (art311)
   kompHoursWeekend: number;                      // komp-övertid helg (art312)
+  kompByDate?: Record<string, number>;            // datum → komptimmar (art31101/31201 där de finns, annars art311/312)
   kompPayout?: boolean;                          // laborera: ta ut komp kontant i bruttolönen
   sjukByDate: Record<string, number>;            // datum → sjuktimmar (art80001)
   semesterByDate: Record<string, boolean>;       // datum → semesterdag (art700)
