@@ -78,8 +78,9 @@ export default function SummeringPage() {
         <p className="mb-6 max-w-3xl text-sm text-[#F5F7FF]/70">
           Alla sparade lönespecar lagda på hög, räknat per begränsningsperiod
           (1 april – 31 mars). Arbetad tid är nominell tid (315) plus plustid
-          (483), och varje semesterdag (700) noteras som 5 h och en dag enligt
-          §5.2. Ett datum räknas alltid som{' '}
+          (483) plus långdagstillägget (K315) — 0,4 h för varje timme över
+          10,5 h per dygn. Varje semesterdag (700) noteras som 5 h och en dag
+          enligt §5.2. Ett datum räknas alltid som{' '}
           <span className="font-semibold text-[#F5F7FF]">en</span> dag — aldrig
           två, oavsett hur många arter det står på.
         </p>
@@ -138,7 +139,7 @@ export default function SummeringPage() {
               </p>
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] border-collapse text-sm">
+                <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-[#F5F7FF]/50">
                       <th className="py-2 pr-3 font-medium">Månad</th>
@@ -148,6 +149,9 @@ export default function SummeringPage() {
                       </th>
                       <th className="py-2 pr-3 text-right font-medium">
                         Plustid (483)
+                      </th>
+                      <th className="py-2 pr-3 text-right font-medium">
+                        Långdag (K315)
                       </th>
                       <th className="py-2 pr-3 text-right font-medium">
                         Semester (700)
@@ -180,6 +184,11 @@ export default function SummeringPage() {
                           {m.plus > 0 ? `${fmtHours.format(m.plus)} h` : '–'}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums text-[#F5F7FF]/75">
+                          {m.langdagTimmar > 0
+                            ? `${fmtHours.format(m.langdagTimmar)} h`
+                            : '–'}
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-[#F5F7FF]/75">
                           {m.semesterTimmar > 0
                             ? `${fmtHours.format(m.semesterTimmar)} h`
                             : '–'}
@@ -201,6 +210,9 @@ export default function SummeringPage() {
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">
                         {fmtHours.format(period.plus)} h
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {fmtHours.format(period.langdagTimmar)} h
                       </td>
                       <td className="py-2 pr-3 text-right tabular-nums">
                         {fmtHours.format(period.semesterTimmar)} h
@@ -256,7 +268,8 @@ function PeriodOversikt({ period }: { period: PeriodSummering }) {
             <>
               <div>
                 315: {fmtHours.format(period.nominell)} h · 483:{' '}
-                {fmtHours.format(period.plus)} h
+                {fmtHours.format(period.plus)} h · K315:{' '}
+                {fmtHours.format(period.langdagTimmar)} h
               </div>
               <div>
                 Semester: {fmtHours.format(period.semesterTimmar)} h (
@@ -303,11 +316,18 @@ function PeriodOversikt({ period }: { period: PeriodSummering }) {
 
         <div className="mt-3 grid gap-x-6 gap-y-1 text-xs text-[#F5F7FF]/60 sm:grid-cols-2">
           <div>
-            Arbetad tid (315 + 483):{' '}
+            Arbetad tid (315 + 483 + K315):{' '}
             <span className="font-semibold text-[#F5F7FF]/85 tabular-nums">
               {fmtHours.format(period.arbetsTimmar)} h
             </span>{' '}
             på {fmtInt.format(period.arbetsDagar)} dagar
+          </div>
+          <div>
+            Långdagstillägg (K315):{' '}
+            <span className="font-semibold text-[#F5F7FF]/85 tabular-nums">
+              {fmtHours.format(period.langdagTimmar)} h
+            </span>{' '}
+            på {fmtInt.format(period.langdagar)} dygn över 10,5 h
           </div>
           <div className="sm:text-right">
             Semester (700):{' '}

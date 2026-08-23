@@ -7,6 +7,11 @@
  * art315-rad. En dag räknas därför som EN dag så fort den har 315 eller 483,
  * aldrig som två.
  *
+ * Långdagstillägg (art K315) räknas också in: arbetstid över 10,5 h per dygn
+ * ersätts enligt §5.2 med 0,4 h utöver ordinarie arbetstid, och den tiden
+ * ingår i begränsningsperiodens längd. Tillägget ger bara timmar, aldrig en
+ * extra dag — det ligger alltid på en dag som redan är räknad.
+ *
  * Semester (art700) räknas in i årsarbetstiden enligt §5.2: varje semesterdag
  * noteras som 5,0 tim i arbetstidsjournalen och tar en av de 218 dagarna.
  * En dag som både har semester och arbetad tid räknas som arbetsdag — aldrig
@@ -29,6 +34,9 @@ export const ARSARBETSTID_TIMMAR = 1825;
 export const ARSARBETSTID_DAGAR = 218;
 /** "För varje semesterdag noteras 5,0 tim i arbetstidsjournalen." */
 export const SEMESTER_TIMMAR_PER_DAG = 5;
+/** Gräns och faktor för långdagstillägget (§5.2). */
+export const LANGDAG_GRANS_H = 10.5;
+export const LANGDAG_FAKTOR = 0.4;
 
 export type DagRad = {
   dateISO: string;
@@ -38,6 +46,8 @@ export type DagRad = {
   nominell: number;
   /** Plustid, art483 */
   plus: number;
+  /** Långdagstillägg, art K315 — 0,4 h per timme över 10,5 h */
+  langdag: number;
   total: number;
 };
 
@@ -49,8 +59,9 @@ export type ManadRad = {
   semesterDagar: number;
   nominell: number;
   plus: number;
+  langdagTimmar: number;
   semesterTimmar: number;
-  /** Nominell + plustid + semester */
+  /** Nominell + plustid + långdagstillägg + semester */
   total: number;
   /** Filnamnen på de specar som bidragit med datum i månaden */
   kallor: string[];
@@ -65,14 +76,18 @@ export type PeriodSummering = {
   endISO: string;
   /** Arbetsdagar + semesterdagar — varje datum räknas en gång */
   dagar: number;
-  /** Nominell tid + plustid + semester */
+  /** Nominell tid + plustid + långdagstillägg + semester */
   timmar: number;
   /** Dagar med 315 eller 483 */
   arbetsDagar: number;
-  /** Nominell tid + plustid */
+  /** Nominell tid + plustid + långdagstillägg */
   arbetsTimmar: number;
   nominell: number;
   plus: number;
+  /** Långdagstillägg (K315) — timmar, ger aldrig en extra dag */
+  langdagTimmar: number;
+  /** Dagar med långdagstillägg, dvs dygn över 10,5 h */
+  langdagar: number;
   semesterDagar: number;
   semesterTimmar: number;
   manader: ManadRad[];
@@ -113,6 +128,7 @@ export function buildPeriodSummaries(
   for (const spec of ordered) {
     const nominell = spec.overview?.art315?.hoursByDateISO ?? {};
     const plus = spec.overview?.art483?.hoursByDateISO ?? {};
+    const langdag = spec.overview?.artK315?.hoursByDateISO ?? {};
 
     const noteraKalla = (dateISO: string) => {
       const monthISO = dateISO.slice(0, 7);
@@ -121,11 +137,16 @@ export function buildPeriodSummaries(
       kallorByMonth.set(monthISO, kallor);
     };
 
-    const dates = new Set([...Object.keys(nominell), ...Object.keys(plus)]);
+    const dates = new Set([
+      ...Object.keys(nominell),
+      ...Object.keys(plus),
+      ...Object.keys(langdag),
+    ]);
     for (const dateISO of dates) {
       const n = isNumber(nominell[dateISO]) ? nominell[dateISO] : 0;
       const p = isNumber(plus[dateISO]) ? plus[dateISO] : 0;
-      const total = n + p;
+      const l = isNumber(langdag[dateISO]) ? langdag[dateISO] : 0;
+      const total = n + p + l;
       if (total <= 0) continue;
 
       byDate.set(dateISO, {
@@ -133,6 +154,7 @@ export function buildPeriodSummaries(
         typ: "arbete",
         nominell: n,
         plus: p,
+        langdag: l,
         total,
       });
       noteraKalla(dateISO);
@@ -153,6 +175,7 @@ export function buildPeriodSummaries(
       typ: "semester",
       nominell: 0,
       plus: 0,
+      langdag: 0,
       total: SEMESTER_TIMMAR_PER_DAG,
     });
   }
@@ -173,6 +196,8 @@ export function buildPeriodSummaries(
         arbetsTimmar: 0,
         nominell: 0,
         plus: 0,
+        langdagTimmar: 0,
+        langdagar: 0,
         semesterDagar: 0,
         semesterTimmar: 0,
         manader: [],
@@ -204,6 +229,7 @@ export function buildPeriodSummaries(
         semesterDagar: 0,
         nominell: 0,
         plus: 0,
+        langdagTimmar: 0,
         semesterTimmar: 0,
         total: 0,
         kallor: Array.from(kallorByMonth.get(monthISO) ?? []),
@@ -218,9 +244,12 @@ export function buildPeriodSummaries(
       period.arbetsTimmar += rad.total;
       period.nominell += rad.nominell;
       period.plus += rad.plus;
+      period.langdagTimmar += rad.langdag;
+      if (rad.langdag > 0) period.langdagar += 1;
       manad.arbetsDagar += 1;
       manad.nominell += rad.nominell;
       manad.plus += rad.plus;
+      manad.langdagTimmar += rad.langdag;
     } else {
       period.semesterDagar += 1;
       period.semesterTimmar += rad.total;
