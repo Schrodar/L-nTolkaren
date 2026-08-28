@@ -19,7 +19,7 @@ function LoneberakningPageInner() {
       <div className="mx-auto max-w-6xl">
         <header className="mb-8 flex items-center justify-between">
           <h1 className="text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
-            Löneberäkning
+            Tidsavstämning
           </h1>
           <nav aria-label="Primary" className="flex items-center gap-2">
             <Link
