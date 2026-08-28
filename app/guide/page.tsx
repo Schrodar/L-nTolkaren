@@ -57,10 +57,10 @@ export default function GuidePage() {
             Lönespec
           </Link>
           <Link
-            href="/loneberakning"
+            href="/tidsavstamning"
             className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
           >
-            Löneberäkning
+            Tidsavstämning
           </Link>
           <Link
             href="/summering"
@@ -69,7 +69,7 @@ export default function GuidePage() {
             Summering
           </Link>
           <Link
-            href="/loneberakning/hantera"
+            href="/tidsavstamning/hantera"
             className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
           >
             Hantera
@@ -122,12 +122,12 @@ export default function GuidePage() {
             Klicka på <strong className="text-[#e8edf8]">Spara till löneberäkning</strong> under
             resultatet. Specen sparas i din webbläsare (per månad och namn) så att kalendern kan
             hämta den senare. Sparade specar ser du under{' '}
-            <Link href="/loneberakning/hantera" className="text-cyan-300 underline underline-offset-2">Hantera</Link>.
+            <Link href="/tidsavstamning/hantera" className="text-cyan-300 underline underline-offset-2">Hantera</Link>.
           </p>
         </Step>
         <Connector />
 
-        <Step num="4" title="Ladda ner aktuell AO" page={{ label: 'Löneberäkning', href: '/loneberakning' }}>
+        <Step num="4" title="Ladda ner aktuell AO" page={{ label: 'Löneberäkning', href: '/tidsavstamning' }}>
           <p>
             På <strong className="text-[#e8edf8]">Löneberäkning</strong>-sidan finns knappar för att
             ladda ner senaste arbetsordningen (AO) som Excel-fil — välj den som gäller din säsong

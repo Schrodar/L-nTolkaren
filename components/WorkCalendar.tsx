@@ -1181,7 +1181,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
             {availableBoats.length === 0 && (
               <p className="mt-1 text-xs text-white/40">
                 Inga AO-scheman importerade ännu.{' '}
-                <a href="/loneberakning/ao" className="text-sky-400 underline">
+                <a href="/tidsavstamning/ao" className="text-sky-400 underline">
                   Importera here
                 </a>
               </p>

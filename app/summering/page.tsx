@@ -55,10 +55,10 @@ export default function SummeringPage() {
               Lönespec
             </Link>
             <Link
-              href="/loneberakning"
+              href="/tidsavstamning"
               className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
             >
-              Löneberäkning
+              Tidsavstämning
             </Link>
             <Link
               href="/summering"
@@ -67,10 +67,16 @@ export default function SummeringPage() {
               Summering
             </Link>
             <Link
-              href="/loneberakning/hantera"
+              href="/tidsavstamning/hantera"
               className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
             >
               Hantera
+            </Link>
+            <Link
+              href="/guide"
+              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
+            >
+              Kom igång
             </Link>
           </nav>
         </header>
