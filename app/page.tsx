@@ -2,13 +2,13 @@
 
 import * as React from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
 
 import { parsePayslipArtGroups } from '@/lib/parsePayslipArtGroups';
 import { summarizePayslipArtGroups } from '@/lib/summarizePayslipArtGroups';
 import { PayslipArtGroupsPanel } from '@/components/PayslipArtGroupsPanel';
 import { useAppContext } from '@/components/AppContext';
 import type { PayslipArtGroups } from '@/components/PayslipArtGroupsPanel';
+import { SiteNav } from '@/components/SiteNav';
 
 export default function Page() {
   const { savePayslip, listPayslipsForMonth } = useAppContext();
@@ -168,38 +168,7 @@ export default function Page() {
             />
           </div>
 
-          <nav aria-label="Primary" className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
-            >
-              Lönespec
-            </Link>
-            <Link
-              href="/tidsavstamning"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Tidsavstämning
-            </Link>
-            <Link
-              href="/summering"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Summering
-            </Link>
-            <Link
-              href="/tidsavstamning/hantera"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Hantera
-            </Link>
-            <Link
-              href="/guide"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Kom igång
-            </Link>
-          </nav>
+          <SiteNav />
         </div>
       </header>
 

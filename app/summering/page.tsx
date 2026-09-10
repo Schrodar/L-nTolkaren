@@ -4,6 +4,7 @@ import Link from 'next/link';
 import * as React from 'react';
 
 import { useAppContext, type SavedPayslip } from '@/components/AppContext';
+import { SiteNav } from '@/components/SiteNav';
 import {
   ARSARBETSTID_DAGAR,
   ARSARBETSTID_TIMMAR,
@@ -47,38 +48,7 @@ export default function SummeringPage() {
           <h1 className="text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
             Summering
           </h1>
-          <nav aria-label="Primary" className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Lönespec
-            </Link>
-            <Link
-              href="/tidsavstamning"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Tidsavstämning
-            </Link>
-            <Link
-              href="/summering"
-              className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
-            >
-              Summering
-            </Link>
-            <Link
-              href="/tidsavstamning/hantera"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Hantera
-            </Link>
-            <Link
-              href="/guide"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Kom igång
-            </Link>
-          </nav>
+          <SiteNav />
         </header>
 
         <p className="mb-6 max-w-3xl text-sm text-[#F5F7FF]/70">

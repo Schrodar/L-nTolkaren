@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 
 import type { AoBlock, ParsedAoSheet, StoredAoSheetMeta } from '@/lib/ao/types';
+import { SiteNav } from '@/components/SiteNav';
 import {
   deleteLocalAoSheet,
   listLocalAoSheets,
@@ -603,38 +603,7 @@ export default function AoImportPage() {
           <h1 className="text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
             Importera AO-schema
           </h1>
-          <nav aria-label="Primary" className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Lönespec
-            </Link>
-            <Link
-              href="/tidsavstamning"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Tidsavstämning
-            </Link>
-            <Link
-              href="/summering"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Summering
-            </Link>
-            <Link
-              href="/tidsavstamning/hantera"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Hantera
-            </Link>
-            <Link
-              href="/guide"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Kom igång
-            </Link>
-          </nav>
+          <SiteNav />
         </header>
 
         {/* Introduktion */}

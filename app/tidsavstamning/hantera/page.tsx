@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import * as React from 'react';
 
 import { AoUpload } from '@/components/AoUpload';
@@ -9,49 +8,19 @@ import type { SavedPayslip } from '@/components/AppContext';
 import { deleteLocalAoSheet, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
 import { boatLabel } from '@/lib/ao/editions';
 import type { StoredAoSheetMeta } from '@/lib/ao/types';
+import { SiteNav } from '@/components/SiteNav';
 
 type AoSheetMeta = StoredAoSheetMeta;
 
 export default function HanteraPage() {
   return (
     <div className="min-h-dvh bg-[#0B1B3A] px-4 py-10 text-[#F5F7FF] sm:px-6 sm:py-14">
-      <div className="mx-auto max-w-4xl">
-        <header className="mb-8 flex items-center justify-between">
+      <div className="mx-auto max-w-6xl">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-3xl font-semibold tracking-[-0.02em] sm:text-4xl">
             Hantera data
           </h1>
-          <nav aria-label="Primary" className="flex items-center gap-2">
-            <Link
-              href="/"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Lönespec
-            </Link>
-            <Link
-              href="/tidsavstamning"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Tidsavstämning
-            </Link>
-            <Link
-              href="/summering"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Summering
-            </Link>
-            <Link
-              href="/tidsavstamning/hantera"
-              className="rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15"
-            >
-              Hantera
-            </Link>
-            <Link
-              href="/guide"
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm font-medium text-[#F5F7FF]/90 hover:bg-white/10"
-            >
-              Kom igång
-            </Link>
-          </nav>
+          <SiteNav />
         </header>
 
         <div className="space-y-8">

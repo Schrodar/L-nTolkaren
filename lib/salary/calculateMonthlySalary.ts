@@ -64,6 +64,25 @@ export type SalaryInput = {
   allowanceAmounts: Record<AllowanceKey, number>;
 };
 
+/**
+ * Indata när användaren räknar för hand i stället för från AO och lönespec.
+ * Utan datum går varken OB-fönstren eller vardag/helg-delaren att härleda, så
+ * här anges timmarna redan uppdelade.
+ */
+export type ManualSalaryInput = {
+  tariff: TariffTable;
+  tenure: TenureKey;
+  employmentType: EmploymentType;
+  /** Ordinarie timmar — lönegrund vid timlön, utan effekt vid månadslön. */
+  ordinaryHours: number;
+  obHours: number;
+  overtimeWeekdayHours: number;
+  overtimeWeekendHours: number;
+  engineAttendantDays: number;
+  activeAllowances: Set<AllowanceKey>;
+  allowanceAmounts: Record<AllowanceKey, number>;
+};
+
 // ── Resultat ─────────────────────────────────────────────────────────────────
 
 export type SalaryBreakdown = {
@@ -204,29 +223,135 @@ function isWeekendForOvertime(dateISO: string): boolean {
 
 // ── Huvudfunktion ────────────────────────────────────────────────────────────
 
+/**
+ * Timsatserna som allt räknas ur. Delas av den automatiska och den manuella
+ * beräkningen så att de aldrig kan glida isär.
+ */
+export function salaryRates(tariff: TariffTable, tenure: TenureKey) {
+  const monthlyRate = tariff.monthly[tenure];
+  return {
+    monthlyRate,
+    obRatePerHour: monthlyRate / 300,
+    otWeekdayRate: monthlyRate / 104, // §6.3 vardag inkl. fredag
+    otWeekendRate: monthlyRate / 72,  // §6.3 lördag, söndag, helg
+  };
+}
+
+/** Grundlön: månadslön rakt av, annars timmar × timlön enligt §11.2. */
+function calcBaseSalary(
+  tariff: TariffTable,
+  tenure: TenureKey,
+  employmentType: EmploymentType,
+  ordinaryHours: number
+): number {
+  if (employmentType === 'monthly') return tariff.monthly[tenure];
+  const hourlyRate =
+    employmentType === 'hourlySeasonal'
+      ? tariff.hourlySeasonal[tenure]
+      : tariff.hourlyShortTerm[tenure];
+  return ordinaryHours * hourlyRate;
+}
+
+/** Tilläggen — maskinskötsel per dag, rederi och däckman per månad. */
+function calcAllowances(
+  engineAttendantDays: number,
+  activeAllowances: Set<AllowanceKey>,
+  allowanceAmounts: Record<AllowanceKey, number>
+) {
+  return {
+    engineAttendant: engineAttendantDays * allowanceAmounts['maskinskots'],
+    rederiAllowance: activeAllowances.has('rederi')
+      ? allowanceAmounts['rederi']
+      : 0,
+    dackmanAllowance: activeAllowances.has('dackman')
+      ? allowanceAmounts['dackman']
+      : 0,
+  };
+}
+
+/**
+ * Löneberäkning från manuellt inmatade summor. Samma satser och tillägg som
+ * den automatiska beräkningen — skillnaden är bara att timmarna kommer från
+ * användaren i stället för från AO-schemat.
+ */
+export function calculateManualSalary(
+  input: ManualSalaryInput
+): SalaryBreakdown {
+  const {
+    tariff,
+    tenure,
+    employmentType,
+    ordinaryHours,
+    obHours,
+    overtimeWeekdayHours,
+    overtimeWeekendHours,
+    engineAttendantDays,
+    activeAllowances,
+    allowanceAmounts,
+  } = input;
+
+  const { obRatePerHour, otWeekdayRate, otWeekendRate } = salaryRates(
+    tariff,
+    tenure
+  );
+
+  const baseSalary = calcBaseSalary(
+    tariff,
+    tenure,
+    employmentType,
+    ordinaryHours
+  );
+  const obPay = obHours * obRatePerHour;
+  const overtimeWeekday = overtimeWeekdayHours * otWeekdayRate;
+  const overtimeWeekend = overtimeWeekendHours * otWeekendRate;
+  const { engineAttendant, rederiAllowance, dackmanAllowance } = calcAllowances(
+    engineAttendantDays,
+    activeAllowances,
+    allowanceAmounts
+  );
+
+  return {
+    baseSalary,
+    obPay,
+    overtimeWeekday,
+    overtimeWeekend,
+    engineAttendant,
+    rederiAllowance,
+    dackmanAllowance,
+    total:
+      baseSalary +
+      obPay +
+      overtimeWeekday +
+      overtimeWeekend +
+      engineAttendant +
+      rederiAllowance +
+      dackmanAllowance,
+    obHours,
+    overtimeWeekdayHours,
+    overtimeWeekendHours,
+    totalWorkedHours: ordinaryHours,
+    engineAttendantDays,
+    sjukAvdrag: 0,
+    sjukHours: 0,
+  };
+}
+
 export function calculateMonthlySalary(input: SalaryInput): SalaryBreakdown {
   const { tariff, tenure, employmentType, days, activeAllowances, allowanceAmounts } = input;
 
-  const monthlyRate = tariff.monthly[tenure];
-  const obRatePerHour = monthlyRate / 300;
-  const otWeekdayRate = monthlyRate / 104;
-  const otWeekendRate = monthlyRate / 72;
+  const { obRatePerHour, otWeekdayRate, otWeekendRate } = salaryRates(tariff, tenure);
 
   // Grundlön
-  let baseSalary: number;
-  if (employmentType === 'monthly') {
-    baseSalary = monthlyRate;
-  } else {
-    const hourlyRate =
-      employmentType === 'hourlySeasonal'
-        ? tariff.hourlySeasonal[tenure]
-        : tariff.hourlyShortTerm[tenure];
-    const totalOrdinaryHours = days.reduce(
-      (sum, d) => sum + Math.max(d.aoHours, d.manualHours),
-      0
-    );
-    baseSalary = totalOrdinaryHours * hourlyRate;
-  }
+  const totalOrdinaryHours = days.reduce(
+    (sum, d) => sum + Math.max(d.aoHours, d.manualHours),
+    0
+  );
+  const baseSalary = calcBaseSalary(
+    tariff,
+    tenure,
+    employmentType,
+    totalOrdinaryHours
+  );
 
   let obHours = 0;
   let overtimeWeekdayHours = 0;
@@ -258,14 +383,11 @@ export function calculateMonthlySalary(input: SalaryInput): SalaryBreakdown {
   // anroparen sätter engineAttendantDays utifrån inställningen eller
   // specens/manuellt markerade maskindagar (kan gälla utan att
   // tillägget är aktiverat i Löneinställningar).
-  const engineAttendant =
-    totalEngineAttendantDays * allowanceAmounts['maskinskots'];
-  const rederiAllowance = activeAllowances.has('rederi')
-    ? allowanceAmounts['rederi']
-    : 0;
-  const dackmanAllowance = activeAllowances.has('dackman')
-    ? allowanceAmounts['dackman']
-    : 0;
+  const { engineAttendant, rederiAllowance, dackmanAllowance } = calcAllowances(
+    totalEngineAttendantDays,
+    activeAllowances,
+    allowanceAmounts
+  );
 
   const total =
     baseSalary +
