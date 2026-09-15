@@ -599,24 +599,11 @@ function MonthCalendar({
         })}
       </div>
 
+      {/* Ikonerna har egna tooltips — legenden behöver inte stavas ut i löptext. */}
       <div className="mt-3 text-[11px] text-gray-500">
-        Ticktack-ikon = övertid (ART 301/302/311/31101/312/31201). Hover visar
-        info, klick öppnar popup.
-        <span className="ml-2">
-          Express-ikon = arbete (ART 315) när inga andra ikoner syns (förutom
-          ticktack).
-        </span>
-        <span className="ml-2">Gul markering + ikon = semester (ART 700).</span>
-        <span className="ml-2">Ikon = VAB (ART 810/81001).</span>
-        <span className="ml-2">Temp-ikon = sjukdom (ART 80001).</span>
-      </div>
-
-      <div className="mt-1 text-[11px] text-gray-500">
-        Denna månad: övertid{' '}
-        <span className="font-semibold text-gray-700">{overtimeCount}</span>,
-        arbete <span className="font-semibold text-gray-700">{workCount}</span>,
-        totalt markerade{' '}
-        <span className="font-semibold text-gray-700">{markedCount}</span>.
+        {workCount} arbetsdagar
+        {overtimeCount > 0 ? `, ${overtimeCount} med övertid` : ''}. Klicka på
+        en dag för detaljer.
       </div>
 
       {isModalOpen ? (
@@ -1008,13 +995,6 @@ export function PayslipArtGroupsPanel({
     }).format(n);
   }, []);
 
-  const formatSekNumber = React.useCallback((n: number) => {
-    return new Intl.NumberFormat('sv-SE', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(n);
-  }, []);
-
   const formatInt = React.useCallback((n: number) => {
     return new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 0 }).format(
       n,
@@ -1132,11 +1112,6 @@ export function PayslipArtGroupsPanel({
   const art483TotalMinutes = art483 ? Math.round(art483.hoursTotal * 60) : 0;
   const art483Hours = Math.floor(art483TotalMinutes / 60);
   const art483Minutes = Math.abs(art483TotalMinutes % 60);
-
-  const dayLabelFmt = React.useMemo(
-    () => new Intl.DateTimeFormat('sv-SE', { day: 'numeric', month: 'short' }),
-    [],
-  );
 
   /**
    * Långdagar — dygn med mer än 10,5 h arbetad tid. Dagarna räknas fram ur
@@ -1482,635 +1457,485 @@ export function PayslipArtGroupsPanel({
   const sicknessDaysISO = overview.art80001?.datesISO ?? [];
   const semesterDaysISO = overview.art700?.datesISO ?? EMPTY_DATES;
 
+  // Arbetsdagar i kalendern: art315 för tillsvidareanställda och art010 för
+  // timanställda. Utan 010 står kalendern omarkerad för en timanställd trots
+  // att specen tolkats rätt.
+  const arbetstimmarPerDag = React.useMemo(() => {
+    const nominell = art315?.hoursByDateISO ?? {};
+    const timlon = art010?.hoursByDateISO ?? {};
+    if (!Object.keys(timlon).length) return nominell;
+
+    const ut: Record<string, number> = { ...nominell };
+    for (const [iso, h] of Object.entries(timlon)) {
+      ut[iso] = (ut[iso] ?? 0) + h;
+    }
+    return ut;
+  }, [art315, art010]);
+
+  const arbetsdagarISO = React.useMemo(
+    () => Object.keys(arbetstimmarPerDag).sort(),
+    [arbetstimmarPerDag],
+  );
+
   return (
     <section className="w-full rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="border-b border-gray-100 p-5">
-        <p className="mt-1 text-sm text-gray-600">
-          {fileName ? fileName : '–'}
-          <span className="text-gray-400"> • </span>
-          <span>
-            {artGroups.length} grupper, {totalRows} rader
-          </span>
+      <div className="border-b border-gray-100 px-5 py-4">
+        <p className="text-sm font-medium text-gray-900">
+          {fileName ? fileName : 'Lönespecifikation'}
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 p-5 lg:grid-cols-3">
-        <div>
-          {calendarMonthISO ? (
-            <MonthCalendar
-              monthISO={calendarMonthISO}
-              overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
-              workDaysISO={art315?.datesISO ?? []}
-              workHoursByDayISO={art315?.hoursByDateISO}
-              plusHoursByDayISO={art483?.hoursByDateISO}
-              art302DatesISO={art302DatesISO}
-              art302BreakdownByDayISO={art302BreakdownByDayISO}
-              sicknessDaysISO={sicknessDaysISO}
-              semesterDaysISO={semesterDaysISO}
-              vabDaysISO={vabDaysISO}
-              vabBreakdownByDayISO={vabBreakdownByDayISO}
-              caption={
-                hasAnyOvertime
-                  ? 'Markerar övertid: ticktack = ART 301/302/311/31101/312/31201.'
-                  : 'Inga övertidsrader (ART 301/302/311/31101/312/31201) hittades i denna PDF.'
-              }
-            />
-          ) : (
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
-              Kunde inte avgöra månad för kalender (inga datum i ART 311/315).
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">
-            Översikt Timmar
-          </div>
-
-          <div className="mt-3 space-y-2 text-sm">
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">
-                Ordinarie arbets tid
-              </div>
-
-              <div className="mt-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-gray-600">Arbetstid (315)</div>
-                  <div className="tabular-nums font-semibold text-gray-900">
-                    {art315
-                      ? `${formatInt(art315Hours)} h ${formatInt(art315Minutes)} min`
-                      : '–'}
-                  </div>
-                </div>
-
-                {art483 && (
-                  <>
-                    <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-gray-600">Plustid (483)</div>
-                      <div className="tabular-nums font-semibold text-gray-900">
-                        {formatInt(art483Hours)} h {formatInt(art483Minutes)} min
-                      </div>
-                    </div>
-                    <div className="mt-1 text-xs text-gray-500">
-                      Plustid = arbetad tid över årsarbetstidstaket (5 h ×
-                      månadens dagar). Ordinarie tid (315) klipps den dagen
-                      taket nås — verklig arbetstid är 315 + 483.
-                    </div>
-                  </>
-                )}
-
-                {(artK315 || langdagar.rows.length > 0) && (
-                  <>
-                    <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-gray-600">Långdagstillägg (K315)</div>
-                      <div className="tabular-nums font-semibold text-gray-900">
-                        {formatHours(langdagar.utbetaltTotal)} h
-                      </div>
-                    </div>
-
-                    <div className="mt-1 space-y-0.5 text-xs text-gray-500">
-                      <div className="flex items-center justify-between gap-3">
-                        <span>Långdagar (över 10,5 h)</span>
-                        <span className="tabular-nums">
-                          {formatInt(langdagar.rows.length)} st
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span>Tid över 10,5 h</span>
-                        <span className="tabular-nums">
-                          {formatHours(langdagar.overTotal)} h
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3">
-                        <span>Beräknat tillägg (0,4 ×)</span>
-                        <span className="tabular-nums">
-                          {formatHours(langdagar.berakningTotal)} h
-                        </span>
-                      </div>
-                    </div>
-
-                    {langdagar.rows.length > 0 && (
-                      <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-100 bg-gray-50/70">
-                        {langdagar.rows.map((r) => {
-                          const avviker =
-                            Math.abs(r.berakning - r.utbetalt) > 0.005;
-                          return (
-                            <div
-                              key={r.iso}
-                              className={[
-                                'flex items-center justify-between gap-2 px-2 py-1 text-xs',
-                                avviker ? 'text-red-700' : 'text-gray-600',
-                              ].join(' ')}
-                              title={`${r.iso}: ${formatHours(r.arbetad)} h arbetad tid, ${formatHours(r.over)} h över 10,5 h`}
-                            >
-                              <span className="w-14 shrink-0">
-                                {dayLabelFmt.format(
-                                  new Date(`${r.iso}T12:00:00`),
-                                )}
-                              </span>
-                              <span className="tabular-nums text-gray-500">
-                                {formatHours(r.arbetad)} h
-                              </span>
-                              <span className="tabular-nums font-semibold">
-                                +{formatHours(r.utbetalt)} h
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    <div className="mt-1 text-xs text-gray-500">
-                      Arbetstid över 10,5 h per dygn ersätts med 0,4 h utöver
-                      ordinarie tid (§5.2).{' '}
-                      {langdagar.rows.length === 0 ? null : langdagar.avvikande
-                          .length === 0 ? (
-                        <span className="text-emerald-700">
-                          Specen stämmer med beräkningen.
-                        </span>
-                      ) : (
-                        <span className="text-red-700">
-                          {formatInt(langdagar.avvikande.length)} dag
-                          {langdagar.avvikande.length === 1 ? '' : 'ar'} avviker
-                          från beräkningen — markerade i rött ovan.
-                        </span>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
-
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-gray-600">Semester (700)</div>
-                  <div className="tabular-nums font-semibold text-gray-900">
-                    {art700
-                      ? `${formatInt(art700DaysCount)} d (${formatInt(art700GeneratedHours)} h)`
-                      : '–'}
-                  </div>
-                </div>
-
-                <div className="mx-auto my-2 w-4/5 border-t border-gray-100" />
-
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-gray-600">VAB (810/81001)</div>
-                  <div className="tabular-nums font-semibold text-gray-900">
-                    {overview.art810 || art81001
-                      ? `${formatHours(art81001?.hoursTotal ?? overview.art810?.hoursTotal ?? 0)} h`
-                      : '–'}
-                  </div>
-                </div>
-
-              </div>
-
-              <div className="mt-2 text-xs text-gray-500">
-                Varje semesterdag räknas som 5 timmars arbete.
-              </div>
+      <div className="space-y-4 p-5">
+        {/* Sidans huvudtal — vad som faktiskt landar på kontot. */}
+        {lonebesked && typeof lonebesked.netto === 'number' ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+              Att utbetala
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">
-                Övertid till komp (311)
+            <div className="mt-2 flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
+              <div className="text-4xl font-bold tabular-nums text-emerald-900">
+                {formatSek(lonebesked.netto)}
               </div>
-              {art311 ? (
-                <div className="mt-1 flex items-center justify-between">
-                  <div className="text-gray-600">ART 311</div>
-                  <div className="tabular-nums font-semibold text-gray-900">
-                    {formatInt(art311Hours)} h {formatInt(art311Minutes)} min
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-1 text-sm text-gray-600">
-                  Hittade inga 311-rader.
-                </div>
-              )}
-              {art311?.datesISO.length ? (
-                <div className="mt-1 text-xs text-gray-500">
-                  Datum markerade: {art311.datesISO.length}
+              {lonebesked.utbetalningsdag ? (
+                <div className="pb-1 text-sm text-emerald-800">
+                  Utbetalas {lonebesked.utbetalningsdag}
                 </div>
               ) : null}
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-white p-3">
-              <div className="text-xs font-semibold text-gray-700">
-                Övertid, omräkning (31101 / 31201)
-              </div>
-              {art31101 || art31201 ? (
-                <>
-                  {art31101 ? (
-                    <div className="mt-1 flex items-center justify-between">
-                      <div className="text-gray-600">ART 31101</div>
-                      <div className="tabular-nums font-semibold text-gray-900">
-                        {formatInt(art31101Hours)} h{' '}
-                        {formatInt(art31101Minutes)} min
-                      </div>
-                    </div>
-                  ) : null}
-                  {art31201 ? (
-                    <div className="mt-1 flex items-center justify-between">
-                      <div className="text-gray-600">ART 31201</div>
-                      <div className="tabular-nums font-semibold text-gray-900">
-                        {formatInt(art31201Hours)} h{' '}
-                        {formatInt(art31201Minutes)} min
-                      </div>
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <div className="mt-1 text-sm text-gray-600">
-                  Hittade inga 31101/31201-rader.
-                </div>
-              )}
-              <div className="mt-1 text-xs text-gray-500">
-                31101 = okvalificerad omräkning (1,4×). 31201 = helgdag/helg
-                omräkning (2×).
-              </div>
-            </div>
-
-            <div className="pt-2 text-[11px] text-gray-500">
-              Matchar rader som börjar med artnummer:{' '}
-              <span className="font-mono">
-                /^(\d{'{'}2,5{'}'}|K\d{'{'}3,5{'}'})\s/
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {lonebesked && typeof lonebesked.netto === 'number' ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-            <div className="text-xs uppercase tracking-wide text-emerald-700">
-              Att utbetala
-            </div>
-
-            <div className="mt-2 space-y-1 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-gray-700">
-                  Bruttolön
-                  {lonebesked.bruttoFranSpec !== null ? ' (9991)' : ' (beräknad)'}
-                </div>
-                <div className="tabular-nums font-semibold text-gray-900">
+            <div className="mt-4 grid gap-x-8 gap-y-2 border-t border-emerald-200 pt-3 text-sm sm:grid-cols-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-emerald-900/70">Bruttolön</span>
+                <span className="tabular-nums font-semibold text-emerald-900">
                   {formatSek(
                     lonebesked.bruttoFranSpec ?? lonebesked.bruttoBerakat,
                   )}
-                </div>
+                </span>
               </div>
-
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-gray-700">Skatt</div>
-                <div className="tabular-nums font-semibold text-gray-900">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-emerald-900/70">Skatt</span>
+                <span className="tabular-nums font-semibold text-emerald-900">
                   {formatSek(lonebesked.skatt)}
-                </div>
+                </span>
               </div>
-
-              {lonebesked.ovrigaAvdrag !== 0 && (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-gray-700">
-                    Övriga avdrag (fackavgift, måltid)
-                  </div>
-                  <div className="tabular-nums font-semibold text-gray-900">
+              {lonebesked.ovrigaAvdrag !== 0 ? (
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-emerald-900/70">Övriga avdrag</span>
+                  <span className="tabular-nums font-semibold text-emerald-900">
                     {formatSek(lonebesked.ovrigaAvdrag)}
-                  </div>
+                  </span>
                 </div>
-              )}
+              ) : null}
             </div>
-
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-emerald-200 pt-3">
-              <div className="text-sm font-semibold text-emerald-800">
-                Utbetalas
-                {lonebesked.utbetalningsdag
-                  ? ` ${lonebesked.utbetalningsdag}`
-                  : ''}
-              </div>
-              <div className="text-xl font-bold tabular-nums text-emerald-800">
-                {formatSek(lonebesked.netto)}
-              </div>
-            </div>
-
-            {typeof lonebesked.attUtbetalaFranSpec === 'number' && (
-              <div
-                className={`mt-2 text-xs ${
-                  Math.abs(lonebesked.avvikelse ?? 0) < 0.005
-                    ? 'text-emerald-700'
-                    : 'text-red-700'
-                }`}
-              >
-                {Math.abs(lonebesked.avvikelse ?? 0) < 0.005
-                  ? `Stämmer med specens "Att utbetala" (${formatSek(
-                      lonebesked.attUtbetalaFranSpec,
-                    )}).`
-                  : `Specen säger ${formatSek(
-                      lonebesked.attUtbetalaFranSpec,
-                    )} — ${formatSek(
-                      lonebesked.avvikelse ?? 0,
-                    )} i skillnad. Någon art tolkas inte.`}
-              </div>
-            )}
-
-            {typeof lonebesked.bruttoFranSpec === 'number' &&
-              Math.abs(lonebesked.bruttoBerakat - lonebesked.bruttoFranSpec) >=
-                0.005 && (
-                <div className="mt-1 text-xs text-red-700">
-                  Summan av de tolkade lönearterna blir{' '}
-                  {formatSek(lonebesked.bruttoBerakat)} mot specens{' '}
-                  {formatSek(lonebesked.bruttoFranSpec)}.
-                </div>
-              )}
           </div>
         ) : null}
 
+        {/* Flera anställningar i samma spec — förklarar hur nettot är uppdelat. */}
         {sektioner && sektioner.length > 1 ? (
-          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-            <div className="text-xs uppercase tracking-wide text-gray-500">
-              Anställningar
-            </div>
-            <div className="mt-1 text-[11px] text-gray-500">
-              Specen omfattar flera anställningar. Beloppen ovan är summan av
-              dem.
-            </div>
-
-            <div className="mt-3 space-y-3 text-sm">
-              {sektioner.map((sek, i) => (
-                <div
-                  key={sek.anstallning ?? `gemensam-${i}`}
-                  className="rounded-lg border border-gray-200 bg-white p-3"
-                >
-                  <div className="text-xs font-semibold text-gray-700">
-                    {sek.anstallning
-                      ? `Anställning ${sek.anstallning}`
-                      : 'Gemensamma uppgifter'}
-                    {sek.kostnadsstalle ? ` · kst ${sek.kostnadsstalle}` : ''}
-                  </div>
-
-                  {typeof sek.brutto === 'number' && (
-                    <div className="mt-1 flex items-center justify-between gap-3">
-                      <div className="text-gray-600">Bruttolön</div>
-                      <div className="tabular-nums font-semibold text-gray-900">
-                        {formatSek(sek.brutto)}
-                      </div>
-                    </div>
-                  )}
-                  {sek.skatt !== 0 && (
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-gray-600">Skatt</div>
-                      <div className="tabular-nums font-semibold text-gray-900">
-                        {formatSek(sek.skatt)}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="mt-1 text-[11px] text-gray-500">
-                    Arter: {sek.arter.join(', ')}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {okandaArter && okandaArter.length ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="text-xs uppercase tracking-wide text-amber-700">
-              Arter utan tolkning
-            </div>
-            <div className="mt-1 text-[11px] text-amber-800">
-              Raderna räknas inte in i någon summa. Stämmer inte{' '}
-              {'"Att utbetala"'} är det troligen någon av dem.
-            </div>
-            <div className="mt-2 space-y-1 text-sm">
-              {okandaArter.map((a) => (
-                <div
-                  key={a.art}
-                  className="flex items-center justify-between gap-3"
-                >
-                  <div className="text-gray-700">
-                    <span className="font-mono">{a.art}</span>
-                    {a.description ? ` ${a.description}` : ''}
-                  </div>
-                  <div className="tabular-nums text-gray-600">
-                    {a.rowsCount} rader
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">
-            Översikt pengar
-          </div>
-
-          {moneyOverview.items.length ? (
-            <div className="mt-3 space-y-3 text-sm">
-              <div className="rounded-lg border border-gray-200 bg-white p-3">
-                <div className="text-xs font-semibold text-gray-700">Plus</div>
-                <div className="mt-2 space-y-1">
-                  {moneyOverview.plus.length ? (
-                    moneyOverview.plus.map((it) => (
-                      <div
-                        key={it.label}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <div className="text-gray-600">
-                          {it.label}
-                          {typeof it.count === 'number' &&
-                          Number.isFinite(it.count)
-                            ? ` (${it.count} st)`
-                            : ''}
-                        </div>
-                        <div className="tabular-nums font-semibold text-gray-900">
-                          {formatSek(it.amount)}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-gray-600">–</div>
-                  )}
-                </div>
-
-                <div className="mt-2 border-t border-gray-100 pt-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-gray-700">
-                      Summa plus
-                    </div>
-                    <div className="tabular-nums text-sm font-semibold text-gray-900">
-                      {formatSek(moneyOverview.plusTotal)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-gray-200 bg-white p-3">
-                <div className="text-xs font-semibold text-gray-700">Minus</div>
-                <div className="mt-2 space-y-1">
-                  {moneyOverview.minus.length ? (
-                    moneyOverview.minus.map((it) => (
-                      <div
-                        key={it.label}
-                        className="flex items-center justify-between gap-3"
-                      >
-                        <div className="text-gray-600">
-                          {it.label}
-                          {typeof it.count === 'number' &&
-                          Number.isFinite(it.count)
-                            ? ` (${it.count} st)`
-                            : ''}
-                        </div>
-                        <div className="tabular-nums font-semibold text-gray-900">
-                          {formatSek(it.amount)}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-gray-600">–</div>
-                  )}
-                </div>
-
-                <div className="mt-2 border-t border-gray-100 pt-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-xs font-semibold text-gray-700">
-                      Summa minus
-                    </div>
-                    <div className="tabular-nums text-sm font-semibold text-gray-900">
-                      {formatSek(moneyOverview.minusTotal)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-gray-200 bg-white p-3">
-                <div className="text-xs font-semibold text-gray-700">
-                  Plus + minus = summa
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <div className="tabular-nums text-sm font-semibold text-gray-900">
-                    {formatSekNumber(moneyOverview.plusTotal)} -{' '}
-                    {formatSekNumber(Math.abs(moneyOverview.minusTotal))}
-                  </div>
-                  <div className="tabular-nums text-sm font-semibold text-gray-900">
-                    = {formatSekNumber(moneyOverview.sum)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-gray-200 bg-white p-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-semibold text-gray-700">
-                    Summa
-                  </div>
-                  <div className="tabular-nums text-sm font-semibold text-gray-900">
-                    {formatSek(moneyOverview.sum)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-600">
-              Inga belopp hittades i denna PDF.
-            </div>
-          )}
-
-          {typeof lines?.length === 'number' ? (
-            <div className="mt-3 text-xs text-gray-600">
-              Text-rader (debug):{' '}
-              <span className="tabular-nums font-semibold text-gray-900">
-                {lines.length}
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="border-t border-gray-100 p-5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-900">Grupper</h3>
-          <div className="text-xs text-gray-600">
-            Sorterat:{' '}
-            <span className="font-semibold text-gray-900">
-              flest rader först
-            </span>
-          </div>
-        </div>
-
-        {byArtNotInOverview.length ? (
-          <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white">
-            <div className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2">
-              <div className="text-xs font-semibold text-gray-600">Art</div>
-              <div className="text-xs font-semibold text-gray-600">
-                Rubrik (från första raden)
-              </div>
-              <div className="text-right text-xs font-semibold text-gray-600">
-                Rader
-              </div>
-            </div>
-            <div className="max-h-[260px] overflow-auto">
-              {byArtNotInOverview.map((r) => (
-                <div
-                  key={r.art}
-                  className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-100 px-4 py-3"
-                >
-                  <div className="font-mono text-sm text-gray-800">{r.art}</div>
-                  <div className="text-sm text-gray-900">
-                    <div className="font-medium">{r.description}</div>
-                  </div>
-                  <div className="tabular-nums text-right text-sm font-semibold text-gray-900">
-                    {r.rowsCount}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {sortedNotInOverview.length ? (
-          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {sortedNotInOverview.map((g) => (
-              <div
-                key={g.art}
-                className="overflow-hidden rounded-xl border border-gray-200 bg-white"
-              >
-                <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2">
-                  <div className="font-mono text-sm font-semibold text-gray-900">
-                    {g.art}
-                  </div>
-                  <div className="text-xs text-gray-600">
-                    <span className="tabular-nums font-semibold text-gray-900">
-                      {g.rows.length}
-                    </span>{' '}
-                    rader
-                  </div>
-                </div>
-
-                <div className="max-h-[360px] overflow-auto px-4 py-3">
-                  <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-gray-800">
-                    {g.rows.join('\n')}
-                  </pre>
-                </div>
-              </div>
+          <Kort
+            titel="Anställningar"
+            underrubrik="Specen omfattar flera anställningar. Beloppen ovan är summan av dem."
+          >
+            {sektioner.map((sek, i) => (
+              <Rad
+                key={sek.anstallning ?? `gemensam-${i}`}
+                etikett={
+                  sek.anstallning
+                    ? `Anställning ${sek.anstallning}`
+                    : 'Gemensamma uppgifter'
+                }
+                detalj={`Arter: ${sek.arter.join(", ")}`}
+                varde={
+                  <span className="text-right">
+                    {typeof sek.brutto === 'number' ? (
+                      <span className="block">{formatSek(sek.brutto)}</span>
+                    ) : null}
+                    {sek.skatt !== 0 ? (
+                      <span className="block text-xs font-normal text-gray-500">
+                        skatt {formatSek(sek.skatt)}
+                      </span>
+                    ) : null}
+                  </span>
+                }
+              />
             ))}
-          </div>
+          </Kort>
+        ) : null}
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Kort titel="Det här består lönen av">
+            {moneyOverview.plus.length ? (
+              <>
+                <Underrubrik>Lön och tillägg</Underrubrik>
+                {moneyOverview.plus.map((it) => (
+                  <Rad
+                    key={it.label}
+                    etikett={it.label}
+                    detalj={
+                      typeof it.count === 'number' && Number.isFinite(it.count)
+                        ? `${it.count} rader`
+                        : undefined
+                    }
+                    varde={formatSek(it.amount)}
+                  />
+                ))}
+                <Rad
+                  etikett="Summa lön och tillägg"
+                  varde={formatSek(moneyOverview.plusTotal)}
+                  stark
+                />
+              </>
+            ) : null}
+
+            {moneyOverview.minus.length ? (
+              <>
+                <Underrubrik>Avdrag</Underrubrik>
+                {moneyOverview.minus.map((it) => (
+                  <Rad
+                    key={it.label}
+                    etikett={it.label}
+                    detalj={
+                      typeof it.count === 'number' && Number.isFinite(it.count)
+                        ? `${it.count} rader`
+                        : undefined
+                    }
+                    varde={formatSek(it.amount)}
+                  />
+                ))}
+                <Rad
+                  etikett="Summa avdrag"
+                  varde={formatSek(moneyOverview.minusTotal)}
+                  stark
+                />
+              </>
+            ) : null}
+
+            {!moneyOverview.items.length ? (
+              <Rad etikett="Inga belopp hittades i PDF:en" varde="–" />
+            ) : null}
+          </Kort>
+
+          <Kort titel="Arbetad tid">
+            {art315 ? (
+              <Rad
+                etikett="Arbetstid"
+                detalj="Nominell tid, art 315"
+                varde={`${formatInt(art315Hours)} h ${formatInt(art315Minutes)} min`}
+              />
+            ) : null}
+
+            {art010 ? (
+              <Rad
+                etikett="Timlön"
+                detalj={`Art 010 · ${formatInt(art010.rowsCount)} dagar`}
+                varde={`${formatHours(art010.hoursTotal)} h`}
+              />
+            ) : null}
+
+            {art483 ? (
+              <Rad
+                etikett="Plustid"
+                detalj="Art 483 · tid över årsarbetstidstaket (5 h × månadens dagar)"
+                varde={`${formatInt(art483Hours)} h ${formatInt(art483Minutes)} min`}
+              />
+            ) : null}
+
+            {artK315 || langdagar.rows.length > 0 ? (
+              <Rad
+                etikett="Långdagstillägg"
+                detalj={`Art K315 · ${formatInt(langdagar.rows.length)} dygn över 10,5 h, ${formatHours(langdagar.overTotal)} h däröver`}
+                varde={`${formatHours(langdagar.utbetaltTotal)} h`}
+              />
+            ) : null}
+
+            {art301 ? (
+              <Rad
+                etikett="Övertid"
+                detalj="Art 301 · utbetald"
+                varde={`${formatHours(art301.hoursTotal)} h`}
+              />
+            ) : null}
+
+            {art302 ? (
+              <Rad
+                etikett="Övertid, kvalificerad"
+                detalj="Art 302 · utbetald"
+                varde={`${formatHours(art302.hoursTotal)} h`}
+              />
+            ) : null}
+
+            {art311 ? (
+              <Rad
+                etikett="Övertid till komp"
+                detalj="Art 311 · sparas i kompsaldot"
+                varde={`${formatInt(art311Hours)} h ${formatInt(art311Minutes)} min`}
+              />
+            ) : null}
+
+            {art312 ? (
+              <Rad
+                etikett="Kval. övertid till komp"
+                detalj="Art 312 · sparas i kompsaldot"
+                varde={`${formatInt(art312Hours)} h ${formatInt(art312Minutes)} min`}
+              />
+            ) : null}
+
+            {art31101 ? (
+              <Rad
+                etikett="Komp efter omräkning"
+                detalj="Art 31101 · art 311 × 1,4"
+                varde={`${formatInt(art31101Hours)} h ${formatInt(art31101Minutes)} min`}
+              />
+            ) : null}
+
+            {art31201 ? (
+              <Rad
+                etikett="Komp efter omräkning, helg"
+                detalj="Art 31201 · art 312 × 2"
+                varde={`${formatInt(art31201Hours)} h ${formatInt(art31201Minutes)} min`}
+              />
+            ) : null}
+
+            {art700 ? (
+              <Rad
+                etikett="Semester"
+                detalj="Art 700 · varje dag räknas som 5 timmars arbete"
+                varde={`${formatInt(art700DaysCount)} dagar (${formatInt(art700GeneratedHours)} h)`}
+              />
+            ) : null}
+
+            {overview.art810 || art81001 ? (
+              <Rad
+                etikett="VAB"
+                detalj="Art 810/81001"
+                varde={`${formatHours(art81001?.hoursTotal ?? overview.art810?.hoursTotal ?? 0)} h`}
+              />
+            ) : null}
+
+            {!art315 &&
+            !art010 &&
+            !art301 &&
+            !art302 &&
+            !art311 &&
+            !art700 ? (
+              <Rad etikett="Inga tidrader hittades i PDF:en" varde="–" />
+            ) : null}
+          </Kort>
+        </div>
+
+        {calendarMonthISO ? (
+          <MonthCalendar
+            monthISO={calendarMonthISO}
+            overtimeBreakdownByDayISO={overtimeBreakdownByDayISO}
+            workDaysISO={arbetsdagarISO}
+            workHoursByDayISO={arbetstimmarPerDag}
+            plusHoursByDayISO={art483?.hoursByDateISO}
+            art302DatesISO={art302DatesISO}
+            art302BreakdownByDayISO={art302BreakdownByDayISO}
+            sicknessDaysISO={sicknessDaysISO}
+            semesterDaysISO={semesterDaysISO}
+            vabDaysISO={vabDaysISO}
+            vabBreakdownByDayISO={vabBreakdownByDayISO}
+            caption={
+              hasAnyOvertime
+                ? 'Klicka på en dag för detaljer.'
+                : 'Inga övertidsrader i denna PDF. Klicka på en dag för detaljer.'
+            }
+          />
         ) : (
-          <div className="mt-3 rounded-xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
-            Inga övriga ART-grupper att visa (allt som hittades visas redan i
-            Översikt).
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+            Kunde inte avgöra vilken månad specen avser, så kalendern visas
+            inte.
           </div>
         )}
 
-        {lines?.length ? (
-          <details className="mt-5 rounded-xl border border-gray-200 bg-white">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-900">
-              Visa text-rader (debug)
-            </summary>
-            <div className="border-t border-gray-100 px-4 py-3">
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 font-mono text-xs text-gray-800">
-                {lines.map((l) => `${l.y.toFixed(1)}\t${l.text}`).join('\n')}
-              </pre>
+        {okandaArter && okandaArter.length ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="text-xs font-semibold text-amber-800">
+              {okandaArter.length === 1
+                ? 'En art tolkas inte och ingår inte i summorna'
+                : `${okandaArter.length} arter tolkas inte och ingår inte i summorna`}
             </div>
-          </details>
+            <div className="mt-1 space-y-0.5 text-sm text-amber-900">
+              {okandaArter.map((a) => (
+                <div
+                  key={a.art}
+                  className="flex items-baseline justify-between gap-3"
+                >
+                  <span>
+                    <span className="font-mono">{a.art}</span>
+                    {a.description ? ` ${a.description}` : ''}
+                  </span>
+                  <span className="tabular-nums text-amber-800/70">
+                    {a.rowsCount} rader
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         ) : null}
+
+        <details className="rounded-xl border border-gray-200 bg-white">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-700">
+            Visa rådata från PDF:en
+          </summary>
+
+          <div className="space-y-4 border-t border-gray-100 p-4">
+            <p className="text-xs text-gray-500">
+              {artGroups.length} grupper, {totalRows} rader. Rader som börjar
+              med ett artnummer plockas ut med{' '}
+              <span className="font-mono">
+                /^(\d{'{'}2,5{'}'}|K\d{'{'}3,5{'}'})\s/
+              </span>
+              .
+            </p>
+
+            {byArtNotInOverview.length ? (
+              <div className="overflow-hidden rounded-xl border border-gray-200">
+                <div className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-200 bg-gray-50 px-4 py-2">
+                  <div className="text-xs font-semibold text-gray-600">Art</div>
+                  <div className="text-xs font-semibold text-gray-600">
+                    Rubrik (från första raden)
+                  </div>
+                  <div className="text-right text-xs font-semibold text-gray-600">
+                    Rader
+                  </div>
+                </div>
+                <div className="max-h-[260px] overflow-auto">
+                  {byArtNotInOverview.map((r) => (
+                    <div
+                      key={r.art}
+                      className="grid grid-cols-[90px_1fr_90px] gap-3 border-b border-gray-100 px-4 py-3"
+                    >
+                      <div className="font-mono text-sm text-gray-800">
+                        {r.art}
+                      </div>
+                      <div className="text-sm font-medium text-gray-900">
+                        {r.description}
+                      </div>
+                      <div className="tabular-nums text-right text-sm font-semibold text-gray-900">
+                        {r.rowsCount}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {sortedNotInOverview.length ? (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {sortedNotInOverview.map((g) => (
+                  <div
+                    key={g.art}
+                    className="overflow-hidden rounded-xl border border-gray-200"
+                  >
+                    <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-2">
+                      <div className="font-mono text-sm font-semibold text-gray-900">
+                        {g.art}
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <span className="tabular-nums font-semibold text-gray-900">
+                          {g.rows.length}
+                        </span>{' '}
+                        rader
+                      </div>
+                    </div>
+
+                    <div className="max-h-[360px] overflow-auto px-4 py-3">
+                      <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-gray-800">
+                        {g.rows.join('\n')}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-600">
+                Alla arter i specen tolkas och visas ovan.
+              </p>
+            )}
+
+            {lines?.length ? (
+              <div className="overflow-hidden rounded-xl border border-gray-200">
+                <div className="border-b border-gray-100 bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600">
+                  Textrader ur PDF:en ({lines.length})
+                </div>
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words px-4 py-3 font-mono text-xs text-gray-800">
+                  {lines.map((l) => `${l.y.toFixed(1)}\t${l.text}`).join('\n')}
+                </pre>
+              </div>
+            ) : null}
+          </div>
+        </details>
       </div>
     </section>
+  );
+}
+
+/** Kort med rubrik och rader åtskilda av tunna linjer. */
+function Kort({
+  titel,
+  underrubrik,
+  children,
+}: {
+  titel: string;
+  underrubrik?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="border-b border-gray-100 px-4 py-3">
+        <div className="text-sm font-semibold text-gray-900">{titel}</div>
+        {underrubrik ? (
+          <div className="mt-0.5 text-xs text-gray-500">{underrubrik}</div>
+        ) : null}
+      </div>
+      <div className="divide-y divide-gray-100">{children}</div>
+    </div>
+  );
+}
+
+/** Grupprubrik inuti ett kort. */
+function Underrubrik({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="bg-gray-50 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+      {children}
+    </div>
+  );
+}
+
+/** Etikett till vänster, värde till höger. Detaljraden förklarar arten. */
+function Rad({
+  etikett,
+  detalj,
+  varde,
+  stark,
+}: {
+  etikett: string;
+  detalj?: string;
+  varde: React.ReactNode;
+  stark?: boolean;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 px-4 py-2.5">
+      <div className="min-w-0">
+        <div
+          className={
+            stark
+              ? 'text-sm font-semibold text-gray-900'
+              : 'text-sm text-gray-700'
+          }
+        >
+          {etikett}
+        </div>
+        {detalj ? (
+          <div className="mt-0.5 text-xs text-gray-500">{detalj}</div>
+        ) : null}
+      </div>
+      <div className="shrink-0 tabular-nums text-sm font-semibold text-gray-900">
+        {varde}
+      </div>
+    </div>
   );
 }
