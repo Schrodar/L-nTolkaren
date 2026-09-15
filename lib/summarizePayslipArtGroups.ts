@@ -1,4 +1,8 @@
-import type { ArtGroup } from '@/lib/parsePayslipArtGroups';
+import type {
+  ArtGroup,
+  PayslipSection,
+  SpecTotals,
+} from '@/lib/parsePayslipArtGroups';
 
 export type ParsedArtRow = {
   art: string;
@@ -47,6 +51,78 @@ export type ArtSummary301 = {
  * alltså komptiden som faktiskt krediteras kompsaldot (311 × 1,4 per datum).
  * Samma timmar som 311, inte ny tid: den som visar båda dubbelräknar.
  */
+/**
+ * 010 "Timlön" — timanställdas motsvarighet till månadslön (070). Raden ser
+ * ut precis som en övertidsrad: "<timmar> <á-pris> <belopp>" efter datumet,
+ * och är för en timanställd både arbetstiden och hela inkomsten.
+ */
+export type ArtSummary010 = {
+  art: '010';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+  hoursByDateISO: Record<string, number>;
+  sekPerHour: number | null;
+  sekTotal: number;
+  sekByDateISO: Record<string, number>;
+};
+
+/** Art som bara bidrar med ett belopp. Datum finns bara när raderna har det. */
+export type ArtSummaryBelopp = {
+  art: string;
+  rowsCount: number;
+  sekTotal: number;
+  datesISO?: string[];
+  monthISO?: string | null;
+  sekByDateISO?: Record<string, number>;
+};
+
+/** 811 "Föräldraledighet" — frånvarotimmar, beloppet står på 81103. */
+export type ArtSummary811 = {
+  art: '811';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+};
+
+/**
+ * Vägen från bruttolön till utbetalt belopp.
+ *
+ * Bruttolönen tas från specens egna 9991-rader (en per anställning) — det är
+ * arbetsgivarens egen summa och därmed det säkraste talet. Vid sidan av den
+ * summeras de inkomstarter vi själva tolkar, så att en art vi missar syns som
+ * en skillnad i stället för att tyst försvinna.
+ */
+export type Lonebesked = {
+  /** Summa av art 9991, specens egen bruttolön */
+  bruttoFranSpec: number | null;
+  /** Summan av de inkomstarter appen tolkar */
+  bruttoBerakat: number;
+  /** Skatt (9001 + 9002 + 90016) — negativ */
+  skatt: number;
+  /** Fackföreningsavgift, måltidsavdrag m.m. — negativa */
+  ovrigaAvdrag: number;
+  /** brutto + skatt + övriga avdrag */
+  netto: number | null;
+  /** Specens egen "Att utbetala" */
+  attUtbetalaFranSpec?: number;
+  /** Utbetalningsdag från specen */
+  utbetalningsdag?: string;
+  /** netto − specens "Att utbetala". Noll när allt tolkats rätt. */
+  avvikelse?: number;
+};
+
+/** En anställning på specen, med sin egen bruttolön och skatt. */
+export type SectionSummary = {
+  anstallning: string | null;
+  kostnadsstalle: string | null;
+  arter: string[];
+  brutto: number | null;
+  skatt: number;
+};
+
 export type ArtSummary31101 = {
   art: '31101';
   totalMinutes: number;
@@ -265,6 +341,20 @@ export type ArtSummary80001 = {
 
 export type PayslipArtOverview = {
   art0?: { employeeName: string };
+  art010?: ArtSummary010;
+  art600?: ArtSummaryBelopp;
+  art702?: ArtSummaryBelopp;
+  artK702?: ArtSummaryBelopp;
+  artK925?: ArtSummaryBelopp;
+  art811?: ArtSummary811;
+  art9991?: ArtSummaryBelopp;
+  art90016?: ArtSummaryBelopp;
+  /** Bruttolön → skatt → utbetalt, avstämt mot specens egen slutsumma */
+  lonebesked?: Lonebesked;
+  /** En post per anställning när specen innehåller flera */
+  sections?: SectionSummary[];
+  /** Arter med rader men utan tolkning — varnas, summeras inte */
+  okandaArter?: Array<{ art: string; rowsCount: number; description?: string }>;
   art315?: ArtSummary315;
   art311?: ArtSummary311;
   art301?: ArtSummary301;
@@ -326,7 +416,10 @@ function parseSwedishNumber(raw: string): number | undefined {
 }
 
 function extractAllSwedishNumbers(text: string): number[] {
-  const matches = text.match(/[-+]?\d[\d\s]*,\d{1,2}/g) || [];
+  // Tusenavskiljaren är blanksteg, men bara i grupper om exakt tre siffror.
+  // Med ett tillåtande [\d\s]* slukas antalskolumnen in i beloppet:
+  // "K702 ... vid månadslön 1 3 190,92" blev 13 190,92 i stället för 3 190,92.
+  const matches = text.match(/[-+]?\d+(?: \d{3})*,\d{1,2}/g) || [];
   const out: number[] = [];
   for (const m of matches) {
     const n = parseSwedishNumber(m);
@@ -924,6 +1017,7 @@ function parse70001SemestertillaggFromRawRow(
 
 export function summarizePayslipArtGroups(
   artGroups: ArtGroup[],
+  extra?: { sections?: PayslipSection[]; totals?: SpecTotals },
 ): PayslipArtOverview {
   const byArt = artGroups
     .map((g) => ({
@@ -2064,6 +2158,273 @@ export function summarizePayslipArtGroups(
       };
     }
   }
+
+  // ── 010: Timlön ─────────────────────────────────────────────────────────
+  // Radformatet är identiskt med övertidsraderna: "<timmar> <á-pris> <belopp>"
+  // efter datumintervallet, så parse301FromRawRow duger rakt av.
+  const art010Group = artGroups.find((g) => g.art === '010');
+  if (art010Group?.rows?.length) {
+    let hoursTotal = 0;
+    let sekTotal = 0;
+    let sekPerHour: number | null = null;
+    const dates = new Set<string>();
+    const hoursByDateISO: Record<string, number> = {};
+    const sekByDateISO: Record<string, number> = {};
+
+    for (const row of art010Group.rows) {
+      const parsed = parse301FromRawRow(row);
+      if (!parsed) continue;
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      const sek =
+        typeof parsed.sekTotalFromRow === 'number'
+          ? parsed.sekTotalFromRow
+          : parsed.hours * parsed.sekPerHour;
+
+      hoursTotal += parsed.hours;
+      sekTotal += sek;
+      if (sekPerHour === null) sekPerHour = parsed.sekPerHour;
+
+      const hoursPerDay = parsed.hours / expanded.length;
+      const sekPerDay = sek / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + hoursPerDay;
+        sekByDateISO[d] = (sekByDateISO[d] ?? 0) + sekPerDay;
+      }
+    }
+
+    if (dates.size > 0) {
+      const datesISO = Array.from(dates).sort();
+      overview.art010 = {
+        art: '010',
+        rowsCount: art010Group.rows.length,
+        datesISO,
+        monthISO: pickBestMonthISO(datesISO),
+        hoursTotal: Math.round(hoursTotal * 100) / 100,
+        hoursByDateISO,
+        sekPerHour,
+        sekTotal: Math.round(sekTotal * 100) / 100,
+        sekByDateISO,
+      };
+    }
+  }
+
+  // ── Rena beloppsarter ───────────────────────────────────────────────────
+  const beloppsArt = (art: string): ArtSummaryBelopp | undefined => {
+    const group = artGroups.find((g) => g.art === art);
+    if (!group?.rows?.length) return undefined;
+
+    let sekTotal = 0;
+    let matched = 0;
+    const dates = new Set<string>();
+    const sekByDateISO: Record<string, number> = {};
+
+    for (const row of group.rows) {
+      const n = parseSekAfterDateRangeFromRawRow(row);
+      if (typeof n !== 'number' || !Number.isFinite(n)) continue;
+      sekTotal += n;
+      matched++;
+
+      const parsed = parseArtRow(row);
+      if (!parsed?.dateFrom || !parsed.dateTo) continue;
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+      const perDay = n / expanded.length;
+      for (const d of expanded) {
+        dates.add(d);
+        sekByDateISO[d] = (sekByDateISO[d] ?? 0) + perDay;
+      }
+    }
+    if (matched === 0) return undefined;
+
+    const datesISO = Array.from(dates).sort();
+    return {
+      art,
+      rowsCount: group.rows.length,
+      sekTotal: Math.round(sekTotal * 100) / 100,
+      ...(datesISO.length
+        ? {
+            datesISO,
+            monthISO: pickBestMonthISO(datesISO),
+            sekByDateISO,
+          }
+        : {}),
+    };
+  };
+
+  const art600 = beloppsArt('600');
+  if (art600) overview.art600 = art600;
+  const art702 = beloppsArt('702');
+  if (art702) overview.art702 = art702;
+  const artK702 = beloppsArt('K702');
+  if (artK702) overview.artK702 = artK702;
+  const artK925 = beloppsArt('K925');
+  if (artK925) overview.artK925 = artK925;
+  const art9991 = beloppsArt('9991');
+  if (art9991) overview.art9991 = art9991;
+  const art90016 = beloppsArt('90016');
+  if (art90016) overview.art90016 = art90016;
+
+  // ── 811: Föräldraledighet (timmar) ──────────────────────────────────────
+  const art811Group = artGroups.find((g) => g.art === '811');
+  if (art811Group?.rows?.length) {
+    let hoursTotal = 0;
+    const dates = new Set<string>();
+
+    for (const row of art811Group.rows) {
+      const parsed = parseArtRow(row);
+      const hours = parse810HoursFromRawRow(row);
+      if (typeof hours === 'number' && Number.isFinite(hours)) {
+        hoursTotal += hours;
+      }
+      if (parsed?.dateFrom && parsed.dateTo) {
+        for (const d of expandISODateRange(parsed.dateFrom, parsed.dateTo)) {
+          dates.add(d);
+        }
+      }
+    }
+
+    const datesISO = Array.from(dates).sort();
+    overview.art811 = {
+      art: '811',
+      rowsCount: art811Group.rows.length,
+      datesISO,
+      monthISO: pickBestMonthISO(datesISO),
+      hoursTotal: Math.round(hoursTotal * 100) / 100,
+    };
+  }
+
+  // ── Lönebesked: brutto → skatt → utbetalt ───────────────────────────────
+  const inkomstArter: Array<number | null | undefined> = [
+    overview.art010?.sekTotal,
+    overview.art070?.sekTotal,
+    overview.art301?.sekTotalFromRow ?? overview.art301?.sekTotalComputed,
+    overview.art302?.sekTotalFromRow ?? overview.art302?.sekTotalComputed,
+    overview.art320?.sekTotalFromRow ?? overview.art320?.sekTotalComputed,
+    overview.art350?.sekTotalComputed,
+    overview.art2101?.sekTotal,
+    overview.art0641?.sekTotal,
+    overview.art0644?.sekTotal,
+    overview.art4851?.sekTotal,
+    overview.art534?.sekTotal,
+    overview.art702?.sekTotal,
+    overview.artK702?.sekTotal,
+    overview.artK7022?.sekTotal,
+    overview.art70001?.sekTotalComputed,
+    overview.art81001?.sekTotalFromRow ?? overview.art81001?.sekTotalComputed,
+    overview.art81103?.sekTotal,
+    overview.art80001?.sekTotalFromRow ?? overview.art80001?.sekTotalComputed,
+  ];
+  const bruttoBerakat = inkomstArter.reduce<number>(
+    (sum, v) => (typeof v === 'number' && Number.isFinite(v) ? sum + v : sum),
+    0,
+  );
+
+  const skattArter: Array<number | null | undefined> = [
+    overview.art9001?.sekTotal,
+    overview.art9002?.sekTotal,
+    overview.art90016?.sekTotal,
+  ];
+  const skatt = skattArter.reduce<number>(
+    (sum, v) => (typeof v === 'number' && Number.isFinite(v) ? sum + v : sum),
+    0,
+  );
+
+  // Avdrag som görs efter skatt och därför inte ingår i bruttolönen:
+  // fackföreningsavgift och måltidsavdrag. Båda står negativa på specen.
+  const ovrigaAvdragArter: Array<number | null | undefined> = [
+    overview.fackforeningsavgift?.sekTotal,
+    overview.artK925?.sekTotal,
+  ];
+  const ovrigaAvdrag = ovrigaAvdragArter.reduce<number>(
+    (sum, v) => (typeof v === 'number' && Number.isFinite(v) ? sum + v : sum),
+    0,
+  );
+
+  const bruttoFranSpec = overview.art9991?.sekTotal ?? null;
+  const brutto = bruttoFranSpec ?? bruttoBerakat;
+  const netto =
+    typeof brutto === 'number'
+      ? Math.round((brutto + skatt + ovrigaAvdrag) * 100) / 100
+      : null;
+
+  const attUtbetalaFranSpec = extra?.totals?.attUtbetala;
+
+  overview.lonebesked = {
+    bruttoFranSpec,
+    bruttoBerakat: Math.round(bruttoBerakat * 100) / 100,
+    skatt: Math.round(skatt * 100) / 100,
+    ovrigaAvdrag: Math.round(ovrigaAvdrag * 100) / 100,
+    netto,
+    ...(typeof attUtbetalaFranSpec === 'number'
+      ? {
+          attUtbetalaFranSpec,
+          ...(typeof netto === 'number'
+            ? { avvikelse: Math.round((netto - attUtbetalaFranSpec) * 100) / 100 }
+            : {}),
+        }
+      : {}),
+    ...(extra?.totals?.utbetalningsdag
+      ? { utbetalningsdag: extra.totals.utbetalningsdag }
+      : {}),
+  };
+
+  // ── Per anställning ─────────────────────────────────────────────────────
+  if (extra?.sections?.length) {
+    const beloppUrGrupp = (group: ArtGroup | undefined): number => {
+      if (!group?.rows?.length) return 0;
+      let sum = 0;
+      for (const row of group.rows) {
+        const n = parseSekAfterDateRangeFromRawRow(row);
+        if (typeof n === 'number' && Number.isFinite(n)) sum += n;
+      }
+      return Math.round(sum * 100) / 100;
+    };
+
+    overview.sections = extra.sections.map((s) => {
+      const brutto9991 = s.artGroups.find((g) => g.art === '9991');
+      const skattGrupper = s.artGroups.filter((g) =>
+        ['9001', '9002', '90016'].includes(g.art),
+      );
+      return {
+        anstallning: s.anstallning,
+        kostnadsstalle: s.kostnadsstalle,
+        arter: s.artGroups.map((g) => g.art),
+        brutto: brutto9991 ? beloppUrGrupp(brutto9991) : null,
+        skatt: skattGrupper.reduce((sum, g) => sum + beloppUrGrupp(g), 0),
+      };
+    });
+  }
+
+  // ── Arter utan tolkning ─────────────────────────────────────────────────
+  // Varnas bara, summeras aldrig. Dyker en ny art upp syns den här — och
+  // avvikelsen mot specens "Att utbetala" visar vad den var värd.
+  const tolkadeArter = new Set(
+    Object.entries(overview)
+      .filter(([key, value]) => key.startsWith('art') && value)
+      .map(([key]) => key.slice(3)),
+  );
+  if (overview.fackforeningsavgift) {
+    tolkadeArter.add('960');
+    tolkadeArter.add('690');
+  }
+  if (overview.friskvard) {
+    tolkadeArter.add('9190');
+    tolkadeArter.add('K5441');
+  }
+  tolkadeArter.add('0'); // namnbäraren, inte en riktig art
+
+  const okanda = artGroups
+    .filter((g) => !tolkadeArter.has(g.art))
+    .map((g) => ({
+      art: g.art,
+      rowsCount: g.rows?.length ?? 0,
+      description: descriptionFromRawRow(g.art, g.rows?.[0] ?? ''),
+    }));
+  if (okanda.length) overview.okandaArter = okanda;
 
   return overview;
 }

@@ -3,6 +3,10 @@ import Image from 'next/image';
 import { motion, useTime, useTransform } from 'framer-motion';
 
 import { summarizePayslipArtGroups } from '@/lib/summarizePayslipArtGroups';
+import type {
+  PayslipSection,
+  SpecTotals,
+} from '@/lib/parsePayslipArtGroups';
 
 const EMPTY_DATES: string[] = [];
 
@@ -10,6 +14,10 @@ export type PayslipArtGroups = {
   fileName?: string;
   artGroups: { art: string; rows: string[] }[];
   lines?: { y: number; text: string }[];
+  /** Art-raderna per anställning — en spec kan innehålla flera */
+  sections?: PayslipSection[];
+  /** Specens egen "Att utbetala" att stämma av mot */
+  totals?: SpecTotals;
 };
 
 function daysInMonth(year: number, month1to12: number) {
@@ -918,18 +926,22 @@ export function PayslipArtGroupsPanel({
   fileName,
   artGroups,
   lines,
+  sections,
+  totals,
 }: PayslipArtGroups) {
   const totalRows = React.useMemo(() => countRows(artGroups), [artGroups]);
 
   const overview = React.useMemo(
-    () => summarizePayslipArtGroups(artGroups),
-    [artGroups],
+    () => summarizePayslipArtGroups(artGroups, { sections, totals }),
+    [artGroups, sections, totals],
   );
 
+  // Art '0' bär den anställdes namn, inte en lönerad — den hör inte hemma
+  // i grupptabellen.
   const sorted = React.useMemo(() => {
-    return [...artGroups].sort(
-      (a, b) => (b.rows?.length ?? 0) - (a.rows?.length ?? 0),
-    );
+    return [...artGroups]
+      .filter((g) => g.art !== '0')
+      .sort((a, b) => (b.rows?.length ?? 0) - (a.rows?.length ?? 0));
   }, [artGroups]);
 
   const artsCoveredInOverview = React.useMemo(() => {
@@ -1103,6 +1115,16 @@ export function PayslipArtGroupsPanel({
   const fackforeningsavgift = overview.fackforeningsavgift;
   const friskvard = overview.friskvard;
 
+  const art010 = overview.art010;
+  const art702 = overview.art702;
+  const artK702 = overview.artK702;
+  const art90016 = overview.art90016;
+  const art600 = overview.art600;
+  const artK925 = overview.artK925;
+  const lonebesked = overview.lonebesked;
+  const sektioner = overview.sections;
+  const okandaArter = overview.okandaArter;
+
   const art81001 = overview.art81001;
   const art81103 = overview.art81103;
   const artK315 = overview.artK315;
@@ -1178,6 +1200,9 @@ export function PayslipArtGroupsPanel({
       items.push({ label, amount, count: opts?.count });
     };
 
+    pushIfNumber('Timlön (010)', art010?.sekTotal, {
+      count: art010?.rowsCount,
+    });
     pushIfNumber('Månadslön (070)', art070?.sekTotal);
     pushIfNumber('Övertid (301)', art301?.sekTotalComputed);
     pushIfNumber('Övertid, kvalificerad (302)', art302?.sekTotalComputed);
@@ -1196,6 +1221,19 @@ export function PayslipArtGroupsPanel({
       'Semesterersättning direkt rörliga (K7022)',
       artK7022?.sekTotal,
     );
+    pushIfNumber('Semesterersättning löpande (702)', art702?.sekTotal, {
+      count: art702?.rowsCount,
+    });
+    pushIfNumber(
+      'Semesterersättning vid månadslön (K702)',
+      artK702?.sekTotal,
+    );
+    pushIfNumber('Kostförmån (600)', art600?.sekTotal, {
+      count: art600?.rowsCount,
+    });
+    pushIfNumber('Måltidsavdrag (K925)', artK925?.sekTotal, {
+      count: artK925?.rowsCount,
+    });
 
     // Money conversions / deductions
     pushIfNumber(
@@ -1224,6 +1262,7 @@ export function PayslipArtGroupsPanel({
     // Taxes
     pushIfNumber('Tabellskatt (9001)', art9001?.sekTotal);
     pushIfNumber('Engångsskatt (9002)', art9002?.sekTotal);
+    pushIfNumber('Tabellskatt personnivå (90016)', art90016?.sekTotal);
 
     const plus = items.filter((i) => i.amount > 0);
     const minus = items.filter((i) => i.amount < 0);
@@ -1253,6 +1292,16 @@ export function PayslipArtGroupsPanel({
     art80001?.sekTotalFromRow,
     art9001?.sekTotal,
     art9002?.sekTotal,
+    art010?.sekTotal,
+    art010?.rowsCount,
+    art702?.sekTotal,
+    art702?.rowsCount,
+    artK702?.sekTotal,
+    art600?.sekTotal,
+    art600?.rowsCount,
+    artK925?.sekTotal,
+    artK925?.rowsCount,
+    art90016?.sekTotal,
     art320?.sekTotalComputed,
     art320?.sekTotalFromRow,
     fackforeningsavgift?.sekTotal,
@@ -1688,6 +1737,165 @@ export function PayslipArtGroupsPanel({
             </div>
           </div>
         </div>
+
+        {lonebesked && typeof lonebesked.netto === 'number' ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="text-xs uppercase tracking-wide text-emerald-700">
+              Att utbetala
+            </div>
+
+            <div className="mt-2 space-y-1 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-gray-700">
+                  Bruttolön
+                  {lonebesked.bruttoFranSpec !== null ? ' (9991)' : ' (beräknad)'}
+                </div>
+                <div className="tabular-nums font-semibold text-gray-900">
+                  {formatSek(
+                    lonebesked.bruttoFranSpec ?? lonebesked.bruttoBerakat,
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-gray-700">Skatt</div>
+                <div className="tabular-nums font-semibold text-gray-900">
+                  {formatSek(lonebesked.skatt)}
+                </div>
+              </div>
+
+              {lonebesked.ovrigaAvdrag !== 0 && (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-gray-700">
+                    Övriga avdrag (fackavgift, måltid)
+                  </div>
+                  <div className="tabular-nums font-semibold text-gray-900">
+                    {formatSek(lonebesked.ovrigaAvdrag)}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-emerald-200 pt-3">
+              <div className="text-sm font-semibold text-emerald-800">
+                Utbetalas
+                {lonebesked.utbetalningsdag
+                  ? ` ${lonebesked.utbetalningsdag}`
+                  : ''}
+              </div>
+              <div className="text-xl font-bold tabular-nums text-emerald-800">
+                {formatSek(lonebesked.netto)}
+              </div>
+            </div>
+
+            {typeof lonebesked.attUtbetalaFranSpec === 'number' && (
+              <div
+                className={`mt-2 text-xs ${
+                  Math.abs(lonebesked.avvikelse ?? 0) < 0.005
+                    ? 'text-emerald-700'
+                    : 'text-red-700'
+                }`}
+              >
+                {Math.abs(lonebesked.avvikelse ?? 0) < 0.005
+                  ? `Stämmer med specens "Att utbetala" (${formatSek(
+                      lonebesked.attUtbetalaFranSpec,
+                    )}).`
+                  : `Specen säger ${formatSek(
+                      lonebesked.attUtbetalaFranSpec,
+                    )} — ${formatSek(
+                      lonebesked.avvikelse ?? 0,
+                    )} i skillnad. Någon art tolkas inte.`}
+              </div>
+            )}
+
+            {typeof lonebesked.bruttoFranSpec === 'number' &&
+              Math.abs(lonebesked.bruttoBerakat - lonebesked.bruttoFranSpec) >=
+                0.005 && (
+                <div className="mt-1 text-xs text-red-700">
+                  Summan av de tolkade lönearterna blir{' '}
+                  {formatSek(lonebesked.bruttoBerakat)} mot specens{' '}
+                  {formatSek(lonebesked.bruttoFranSpec)}.
+                </div>
+              )}
+          </div>
+        ) : null}
+
+        {sektioner && sektioner.length > 1 ? (
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+            <div className="text-xs uppercase tracking-wide text-gray-500">
+              Anställningar
+            </div>
+            <div className="mt-1 text-[11px] text-gray-500">
+              Specen omfattar flera anställningar. Beloppen ovan är summan av
+              dem.
+            </div>
+
+            <div className="mt-3 space-y-3 text-sm">
+              {sektioner.map((sek, i) => (
+                <div
+                  key={sek.anstallning ?? `gemensam-${i}`}
+                  className="rounded-lg border border-gray-200 bg-white p-3"
+                >
+                  <div className="text-xs font-semibold text-gray-700">
+                    {sek.anstallning
+                      ? `Anställning ${sek.anstallning}`
+                      : 'Gemensamma uppgifter'}
+                    {sek.kostnadsstalle ? ` · kst ${sek.kostnadsstalle}` : ''}
+                  </div>
+
+                  {typeof sek.brutto === 'number' && (
+                    <div className="mt-1 flex items-center justify-between gap-3">
+                      <div className="text-gray-600">Bruttolön</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {formatSek(sek.brutto)}
+                      </div>
+                    </div>
+                  )}
+                  {sek.skatt !== 0 && (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-gray-600">Skatt</div>
+                      <div className="tabular-nums font-semibold text-gray-900">
+                        {formatSek(sek.skatt)}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-1 text-[11px] text-gray-500">
+                    Arter: {sek.arter.join(', ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {okandaArter && okandaArter.length ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <div className="text-xs uppercase tracking-wide text-amber-700">
+              Arter utan tolkning
+            </div>
+            <div className="mt-1 text-[11px] text-amber-800">
+              Raderna räknas inte in i någon summa. Stämmer inte{' '}
+              {'"Att utbetala"'} är det troligen någon av dem.
+            </div>
+            <div className="mt-2 space-y-1 text-sm">
+              {okandaArter.map((a) => (
+                <div
+                  key={a.art}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <div className="text-gray-700">
+                    <span className="font-mono">{a.art}</span>
+                    {a.description ? ` ${a.description}` : ''}
+                  </div>
+                  <div className="tabular-nums text-gray-600">
+                    {a.rowsCount} rader
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
           <div className="text-xs uppercase tracking-wide text-gray-500">

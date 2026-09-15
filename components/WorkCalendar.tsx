@@ -826,7 +826,15 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     // samt dagar som i sin helhet ligger över årsarbetstidstaket och därför
     // bara har en art483-rad (typiskt i slutet av en månad där taket nåtts).
     const arbetadHours = ov.art315?.hoursByDateISO;
-    if (arbetadHours || Object.keys(newPlus).length > 0 || Object.keys(newVab).length > 0) {
+    // Timanställda saknar art315 — deras arbetstid ligger på art010 (Timlön).
+    // Utan den står kalendern tom trots att specen har fjorton arbetsdagar.
+    const timlonHours = ov.art010?.hoursByDateISO ?? {};
+    if (
+      arbetadHours ||
+      Object.keys(timlonHours).length > 0 ||
+      Object.keys(newPlus).length > 0 ||
+      Object.keys(newVab).length > 0
+    ) {
       const newManual = { ...semManual };
       const newActiveShifts = new Set(activeShifts);
       const newManualActive = new Set(manualActiveDates);
@@ -835,6 +843,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       const dagar = Array.from(
         new Set([
           ...Object.keys(arbetadHours ?? {}),
+          ...Object.keys(timlonHours),
           ...Object.keys(newPlus),
           ...Object.keys(newVab),
         ]),
@@ -846,7 +855,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         // Art315 är nominell tid — den ligger kvar vid VAB och räknas in i
         // årsarbetstiden, så VAB-timmarna finns redan i summan mot AO.
         // Lägg tillbaka ev. klippt plustid så hela arbetstiden jämförs.
-        const totalWorked = (arbetadHours?.[iso] ?? 0) + (newPlus[iso] ?? 0);
+        const totalWorked =
+          (arbetadHours?.[iso] ?? 0) +
+          (timlonHours[iso] ?? 0) +
+          (newPlus[iso] ?? 0);
         if (totalWorked <= 0) continue;
 
         // Faktiskt arbetad tid = nominell tid minus frånvaron
@@ -1035,6 +1047,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
     const ps = loadPayslip(monthISO);
     const spec = ps?.overview.art315?.hoursByDateISO ?? {};
+    const timlon = ps?.overview.art010?.hoursByDateISO ?? {};
     const plus = ps?.overview.art483?.hoursByDateISO ?? {};
     const vabDates = new Set<string>([
       ...(ps?.overview.art810?.datesISO ?? []),
@@ -1049,7 +1062,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
       for (const iso of dates) {
         if (semesterByDate[iso] || vabDates.has(iso)) continue;
         // En dag helt över taket saknar art315 — hela dagen ligger som plustid.
-        const totalWorked = (spec[iso] ?? 0) + (plus[iso] ?? 0);
+        const totalWorked =
+          (spec[iso] ?? 0) + (timlon[iso] ?? 0) + (plus[iso] ?? 0);
         if (totalWorked <= 0) continue;
         if (!pickEditionForDate(daySheets, iso)) continue;
 

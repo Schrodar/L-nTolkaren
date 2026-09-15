@@ -91,7 +91,12 @@ export default function Page() {
       const parsedArt = await parsePayslipArtGroups(arrayBuffer, {
         includePages: true,
       });
-      setArtGroupsData({ fileName: file.name, artGroups: parsedArt.artGroups });
+      setArtGroupsData({
+        fileName: file.name,
+        artGroups: parsedArt.artGroups,
+        sections: parsedArt.sections,
+        totals: parsedArt.totals,
+      });
       setSaveStatus('idle');
 
       requestAnimationFrame(() => {
@@ -111,11 +116,18 @@ export default function Page() {
 
   function handleSavePayslip() {
     if (!artGroupsData) return;
-    const overview = summarizePayslipArtGroups(artGroupsData.artGroups);
+    const overview = summarizePayslipArtGroups(artGroupsData.artGroups, {
+      sections: artGroupsData.sections,
+      totals: artGroupsData.totals,
+    });
+    // Timanställda saknar art315 helt — utan 010 och 702 i kedjan blir
+    // monthISO null och sparknappen gör tyst ingenting.
     const monthISO =
       overview.art315?.monthISO ??
       overview.art301?.monthISO ??
       overview.art311?.monthISO ??
+      overview.art010?.monthISO ??
+      overview.art702?.monthISO ??
       null;
     if (!monthISO) return;
 
