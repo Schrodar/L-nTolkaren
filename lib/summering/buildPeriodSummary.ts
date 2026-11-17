@@ -53,6 +53,12 @@ export type DagRad = {
 
 export type ManadRad = {
   monthISO: string;
+  /**
+   * Ingen lönespec täcker månaden. Skiljer ett hål i serien — t.ex. att
+   * septemberspecen (augustis arbete) aldrig importerats — från en månad
+   * som är inläst men saknar arbetad tid.
+   */
+  saknasImport: boolean;
   /** Arbetsdagar + semesterdagar */
   dagar: number;
   arbetsDagar: number;
@@ -106,6 +112,45 @@ export function periodLabel(startYear: number): string {
   return `${startYear}/${String((startYear + 1) % 100).padStart(2, "0")}`;
 }
 
+/** Månaderna från och med `franISO` till och med `tillISO`, kronologiskt. */
+function manaderMellan(franISO: string, tillISO: string): string[] {
+  const ut: string[] = [];
+  let ar = Number(franISO.slice(0, 4));
+  let manad = Number(franISO.slice(5, 7));
+  const slutAr = Number(tillISO.slice(0, 4));
+  const slutManad = Number(tillISO.slice(5, 7));
+  if (![ar, manad, slutAr, slutManad].every(Number.isFinite)) return ut;
+
+  // 24 varv räcker för en begränsningsperiod på 12 månader och skyddar mot
+  // att en trasig indata skulle ge en oändlig loop.
+  for (let i = 0; i < 24; i++) {
+    ut.push(`${ar}-${String(manad).padStart(2, "0")}`);
+    if (ar === slutAr && manad === slutManad) break;
+    manad += 1;
+    if (manad > 12) {
+      manad = 1;
+      ar += 1;
+    }
+  }
+  return ut;
+}
+
+function tomManad(monthISO: string, saknasImport: boolean): ManadRad {
+  return {
+    monthISO,
+    saknasImport,
+    dagar: 0,
+    arbetsDagar: 0,
+    semesterDagar: 0,
+    nominell: 0,
+    plus: 0,
+    langdagTimmar: 0,
+    semesterTimmar: 0,
+    total: 0,
+    kallor: [],
+  };
+}
+
 function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -124,6 +169,13 @@ export function buildPeriodSummaries(
   const byDate = new Map<string, DagRad>();
   const kallorByMonth = new Map<string, Set<string>>();
   const semesterDates = new Set<string>();
+  /**
+   * Månader som täcks av en inläst lönespec — oavsett om de gav några
+   * timmar. Fylls från specens alla datum och från specens egen månad, så
+   * att en inläst månad utan arbetad tid inte förväxlas med en som aldrig
+   * importerats.
+   */
+  const manaderMedSpec = new Set<string>();
 
   for (const spec of ordered) {
     const nominell = spec.overview?.art315?.hoursByDateISO ?? {};
@@ -142,6 +194,15 @@ export function buildPeriodSummaries(
       ...Object.keys(plus),
       ...Object.keys(langdag),
     ]);
+
+    // Specens egen arbetsmånad plus varje datum den nämner — även datum som
+    // slutar på noll timmar och därför inte blir någon dagrad nedan.
+    if (spec.monthISO) manaderMedSpec.add(spec.monthISO);
+    for (const dateISO of dates) manaderMedSpec.add(dateISO.slice(0, 7));
+    for (const dateISO of spec.overview?.art700?.datesISO ?? []) {
+      manaderMedSpec.add(dateISO.slice(0, 7));
+    }
+
     for (const dateISO of dates) {
       const n = isNumber(nominell[dateISO]) ? nominell[dateISO] : 0;
       const p = isNumber(plus[dateISO]) ? plus[dateISO] : 0;
@@ -224,6 +285,7 @@ export function buildPeriodSummaries(
     if (!manad) {
       manad = {
         monthISO,
+        saknasImport: false,
         dagar: 0,
         arbetsDagar: 0,
         semesterDagar: 0,
@@ -256,6 +318,32 @@ export function buildPeriodSummaries(
       manad.semesterDagar += 1;
       manad.semesterTimmar += rad.total;
     }
+  }
+
+  // Månadsraderna byggdes ur de datum som fanns. En månad utan inläst spec
+  // föll därför tyst ur tabellen — augusti försvann mellan juli och
+  // september utan att något sade att den saknades. Fyll hålen mellan
+  // första och sista månaden med data, markerade så att de går att skilja
+  // från en månad med noll timmar.
+  for (const period of perioder.values()) {
+    if (period.manader.length === 0) continue;
+
+    for (const manad of period.manader) {
+      manad.saknasImport = !manaderMedSpec.has(manad.monthISO);
+    }
+
+    const forsta = period.manader[0].monthISO;
+    const sista = period.manader[period.manader.length - 1].monthISO;
+    const befintliga = new Set(period.manader.map((m) => m.monthISO));
+
+    for (const monthISO of manaderMellan(forsta, sista)) {
+      if (befintliga.has(monthISO)) continue;
+      period.manader.push(
+        tomManad(monthISO, !manaderMedSpec.has(monthISO))
+      );
+    }
+
+    period.manader.sort((a, b) => a.monthISO.localeCompare(b.monthISO));
   }
 
   return Array.from(perioder.values()).sort((a, b) => b.startYear - a.startYear);

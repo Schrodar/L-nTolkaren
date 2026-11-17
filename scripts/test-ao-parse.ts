@@ -3,7 +3,7 @@ import { parseAoWorkbook } from "../lib/ao/parseAoWorkbook";
 
 const file = process.argv[2];
 const buf = fs.readFileSync(file);
-const sheets = parseAoWorkbook(buf);
+const sheets = await parseAoWorkbook(buf);
 
 console.log(`Antal blad: ${sheets.length}`);
 let boatsWithWork = 0;

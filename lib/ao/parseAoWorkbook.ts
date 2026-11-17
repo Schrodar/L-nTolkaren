@@ -25,7 +25,7 @@
  *   Col R  = Annan rast mat slut
  */
 
-import * as XLSX from "xlsx";
+import type { WorkBook, WorkSheet } from "xlsx";
 import type {
   AoBlock,
   AoExceptionRow,
@@ -59,11 +59,6 @@ const WEEKDAY_MAP: Record<string, WeekdayKey> = {
  */
 const PERIOD_RE =
   /(\d{4}-\d{2}-\d{2})\s+t\.?o\.?m\.?\s+(\d{4}-\d{2}-\d{2})/gi;
-
-/**
- * Regex för undantagsetikett: "15.12", "<24.12", "1.1" osv.
- */
-const DATE_LABEL_RE = /^<?(\\d{1,2})\.(\\d{1,2})/;
 
 // ── Grundläggande cell-hjälpfunktioner ─────────────────────────────────────
 
@@ -548,13 +543,17 @@ function parseBlock(
 
 // ── Huvud-parsningsfunktion ─────────────────────────────────────────────────
 
+/** `utils` ur xlsx, vidareskickad eftersom modulen laddas dynamiskt. */
+type XlsxUtils = (typeof import("xlsx"))["utils"];
+
 function parseSheet(
-  worksheet: XLSX.WorkSheet,
-  sheetName: string
+  worksheet: WorkSheet,
+  sheetName: string,
+  utils: XlsxUtils
 ): ParsedAoSheet {
   const parseErrors: string[] = [];
 
-  const rawRows: (string | number | null)[][] = XLSX.utils.sheet_to_json(
+  const rawRows: (string | number | null)[][] = utils.sheet_to_json(
     worksheet,
     { header: 1, defval: null, raw: true }
   ) as (string | number | null)[][];
@@ -653,11 +652,25 @@ function parseSheet(
 
 // ── Publik API ──────────────────────────────────────────────────────────────
 
-export function parseAoWorkbook(buffer: Buffer): ParsedAoSheet[] {
-  let workbook: XLSX.WorkBook;
+/**
+ * Tolkar en AO-arbetsbok. Körs i webbläsaren — filen lämnar aldrig datorn.
+ *
+ * xlsx importeras dynamiskt så att biblioteket hamnar i en egen chunk och
+ * bara hämtas när någon faktiskt laddar upp en AO. Samma mönster som pdf.js
+ * använder i parsePayslipArtGroups.
+ */
+export async function parseAoWorkbook(
+  data: ArrayBuffer | Uint8Array
+): Promise<ParsedAoSheet[]> {
+  const XLSX = await import("xlsx");
+
+  // Buffer ärver från Uint8Array, så node-skript fungerar oförändrat.
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+
+  let workbook: WorkBook;
 
   try {
-    workbook = XLSX.read(buffer, { type: "buffer", cellDates: false });
+    workbook = XLSX.read(bytes, { type: "array", cellDates: false });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Filen kan inte läsas som Excel: ${message}`);
@@ -669,7 +682,7 @@ export function parseAoWorkbook(buffer: Buffer): ParsedAoSheet[] {
     const worksheet = workbook.Sheets[sheetName];
     if (!worksheet) continue;
 
-    const parsed = parseSheet(worksheet, sheetName);
+    const parsed = parseSheet(worksheet, sheetName, XLSX.utils);
 
     const hasContent =
       parsed.blocks.length > 0 ||

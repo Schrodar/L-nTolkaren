@@ -1036,49 +1036,6 @@ export function PayslipArtGroupsPanel({
   const art700DaysCount = art700DatesISO.length;
   const art700GeneratedHours = art700DaysCount * 5;
 
-  const art700Periods = React.useMemo(() => {
-    const dates = art700DatesISO;
-    if (!dates.length) return [] as Array<{ fromISO: string; toISO: string }>;
-
-    const utcMs = (iso: string): number | null => {
-      const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (!m) return null;
-      const y = Number(m[1]);
-      const mo = Number(m[2]);
-      const d = Number(m[3]);
-      if (!Number.isFinite(y) || !Number.isFinite(mo) || !Number.isFinite(d))
-        return null;
-      return Date.UTC(y, mo - 1, d);
-    };
-
-    const oneDay = 24 * 60 * 60 * 1000;
-    const out: Array<{ fromISO: string; toISO: string }> = [];
-
-    let fromISO = dates[0];
-    let prevISO = dates[0];
-    let prevMs = utcMs(prevISO);
-
-    for (let i = 1; i < dates.length; i++) {
-      const curISO = dates[i];
-      const curMs = utcMs(curISO);
-      const isContiguous =
-        typeof prevMs === 'number' && typeof curMs === 'number'
-          ? curMs - prevMs === oneDay
-          : false;
-
-      if (!isContiguous) {
-        out.push({ fromISO, toISO: prevISO });
-        fromISO = curISO;
-      }
-
-      prevISO = curISO;
-      prevMs = curMs;
-    }
-
-    out.push({ fromISO, toISO: prevISO });
-    return out;
-  }, [art700DatesISO]);
-
   const art320 = overview.art320;
 
   const art9001 = overview.art9001;

@@ -42,4 +42,3 @@ next-env.d.ts
 
 # sample PDFs
 public/Förklaring_lönespecifikation (1).pdf
-storage/ao/*.json

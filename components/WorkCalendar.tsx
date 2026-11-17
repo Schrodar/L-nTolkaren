@@ -11,18 +11,16 @@ import {
 } from 'date-fns';
 import { sv } from 'date-fns/locale';
 
-import { AoUpload } from '@/components/AoUpload';
 import { BoatSelect } from '@/components/BoatSelect';
 import { DayModal } from '@/components/DayModal';
-import { useAppContext, ALLOWANCES } from '@/components/AppContext';
-import { TENURE_KEYS } from '@/lib/tariffs/types';
+import { useAppContext } from '@/components/AppContext';
 import {
   getMonthGridDates,
   isSameMonth,
   normalizeDateISO,
 } from '@/lib/calendar/helpers';
 import { resolveAoDay, calcTidEnlKollAvtHours, calcTidEnlPerShift } from '@/lib/ao/resolveAoDay';
-import { getLocalAoSheets, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import { getLocalAoSheets, listLocalAoSheets } from '@/lib/ao/clientStore';
 import { buildTraktamenteRows } from '@/lib/traktamente/buildTraktamenteRows';
 import { downloadTraktamentePdf } from '@/lib/traktamente/traktamentePdf';
 import type { SavedMonth } from '@/components/AppContext';
@@ -33,7 +31,7 @@ import {
   periodLabel,
   pickEditionForDate,
 } from '@/lib/ao/editions';
-import { getHolidayInfo, getEffectiveAoDayType } from '@/lib/ao/holidayRules';
+import { getHolidayInfo } from '@/lib/ao/holidayRules';
 import { calculateMonthlySalary } from '@/lib/salary/calculateMonthlySalary';
 import type { DaySalaryInput } from '@/lib/salary/calculateMonthlySalary';
 import type { AoMode, ParsedAoSheet, StoredAoSheetMeta } from '@/lib/ao/types';
@@ -161,7 +159,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
   // ���� Båtar från AO-lagringen ��������������������������������������������������������������������������������������������
   const [availableBoats, setAvailableBoats] = React.useState<BoatOption[]>([]);
   const [selectedBoat, setSelectedBoat] = React.useState('');
-  const [boatListKey, setBoatListKey] = React.useState(0);
+  const [boatListKey] = React.useState(0);
 
   // ���� Isläge ������������������������������������������������������������������������������������������������������������������������������
   const [selectedMode, setSelectedMode] = React.useState<AoMode>('isfri');
@@ -246,19 +244,8 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
         label: boatLabel(s.vesselName ?? s.sheetName),
       }));
 
-    // Lokalt sparade AO:n visas direkt; server-listan (lokal dev) mergas in.
-    const localSheets = listLocalAoSheets();
-    setAvailableBoats(toBoats(mergeAoSheetLists([], localSheets)));
-
-    fetch('/api/ao/sheets')
-      .then((r) => r.json())
-      .then((data: { success: boolean; sheets?: StoredAoSheetMeta[] }) => {
-        if (canceled || !data.success) return;
-        setAvailableBoats(toBoats(mergeAoSheetLists(data.sheets ?? [], localSheets)));
-      })
-      .catch(() => {
-        // Behåll den lokala listan om servern inte svarar
-      });
+    // AO:n tolkas och lagras enbart i webbläsaren.
+    if (!canceled) setAvailableBoats(toBoats(listLocalAoSheets()));
 
     return () => { canceled = true; };
   }, [boatListKey, refreshKey]);
@@ -269,32 +256,12 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
     if (!selectedBoat) return;
 
-    // Lokalt sparade AO:n har företräde — serverns lagring är efemär på
-    // Netlify. Alla utgåvor för båten laddas; rätt utgåva väljs sedan per dag.
+    // Alla utgåvor för båten laddas; rätt utgåva väljs sedan per dag.
     const localSheets = getLocalAoSheets(selectedBoat);
-    if (localSheets.length > 0) {
+    if (!canceled) {
       setSheetsByBoat((prev) => ({ ...prev, [selectedBoat]: localSheets }));
       setLoadingSheet(false);
-      return;
     }
-
-    setLoadingSheet(true);
-
-    fetch(`/api/ao/sheets/${encodeURIComponent(selectedBoat)}`)
-      .then((r) => r.json())
-      .then((data: { success: boolean; sheet?: ParsedAoSheet }) => {
-        if (canceled) return;
-        setSheetsByBoat((prev) => ({
-          ...prev,
-          [selectedBoat]: data.success && data.sheet ? [data.sheet] : [],
-        }));
-      })
-      .catch(() => {
-        if (!canceled) setSheetsByBoat((prev) => ({ ...prev, [selectedBoat]: [] }));
-      })
-      .finally(() => {
-        if (!canceled) setLoadingSheet(false);
-      });
 
     return () => { canceled = true; };
   }, [selectedBoat, boatListKey, refreshKey]);
@@ -307,33 +274,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
     );
     if (missing.length === 0) return;
 
-    let canceled = false;
     const loaded: Record<string, ParsedAoSheet[]> = {};
-    const pending: Promise<void>[] = [];
-
     for (const slug of missing) {
-      const local = getLocalAoSheets(slug);
-      if (local.length > 0) {
-        loaded[slug] = local;
-        continue;
-      }
-      pending.push(
-        fetch(`/api/ao/sheets/${encodeURIComponent(slug)}`)
-          .then((r) => r.json())
-          .then((data: { success: boolean; sheet?: ParsedAoSheet }) => {
-            loaded[slug] = data.success && data.sheet ? [data.sheet] : [];
-          })
-          .catch(() => {
-            loaded[slug] = [];
-          }),
-      );
+      loaded[slug] = getLocalAoSheets(slug);
     }
-
-    Promise.all(pending).then(() => {
-      if (!canceled) setSheetsByBoat((prev) => ({ ...loaded, ...prev }));
-    });
-
-    return () => { canceled = true; };
+    setSheetsByBoat((prev) => ({ ...loaded, ...prev }));
   }, [boatByDate, sheetsByBoat]);
 
   const aoSheets = React.useMemo(

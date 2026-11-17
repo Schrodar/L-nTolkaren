@@ -7,9 +7,9 @@ import { SiteNav } from '@/components/SiteNav';
 import {
   deleteLocalAoSheet,
   listLocalAoSheets,
-  mergeAoSheetLists,
   saveLocalAoSheets,
 } from '@/lib/ao/clientStore';
+import { importAoFile } from '@/lib/ao/importAoFile';
 
 // ── Typer ──────────────────────────────────────────────────────────────────
 
@@ -63,21 +63,6 @@ function hhmmToMin(t: string | null): number | null {
   const m = t.match(/^(\d+):(\d{2})$/);
   if (!m) return null;
   return parseInt(m[1]) * 60 + parseInt(m[2]);
-}
-
-/** Beräknar AO-netto (lila): bruttotid − AO-rast(B) only. */
-function calcNettoH(
-  aoBruttotid: string | null,
-  aoRastStart: string | null,
-  aoRastEnd: string | null
-): number | null {
-  const brutto = hhmmToMin(aoBruttotid);
-  if (brutto === null) return null;
-  const rastB =
-    aoRastStart && aoRastEnd
-      ? (hhmmToMin(aoRastEnd) ?? 0) - (hhmmToMin(aoRastStart) ?? 0)
-      : 0;
-  return Math.max(0, brutto - rastB) / 60;
 }
 
 /** Beräknar Tid enl. koll.avt. (blå): bruttotid − ALLA raster. */
@@ -344,22 +329,11 @@ function StoredSheetRow({
   const [confirming, setConfirming] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
 
-  async function handleDelete() {
+  function handleDelete() {
     setDeleting(true);
-    const localDeleted = deleteLocalAoSheet(sheet.slug);
-    try {
-      const res = await fetch(`/api/ao/sheets/${sheet.slug}`, {
-        method: 'DELETE',
-      });
-      if (res.ok || localDeleted) {
-        onDelete(sheet.slug);
-      }
-    } catch {
-      if (localDeleted) onDelete(sheet.slug);
-    } finally {
-      setDeleting(false);
-      setConfirming(false);
-    }
+    if (deleteLocalAoSheet(sheet.slug)) onDelete(sheet.slug);
+    setDeleting(false);
+    setConfirming(false);
   }
 
   return (
@@ -491,17 +465,11 @@ export default function AoImportPage() {
   const [storedSheets, setStoredSheets] = React.useState<StoredAoSheetMeta[]>([]);
   const [loadingStored, setLoadingStored] = React.useState(true);
 
-  // Ladda sparade scheman vid mount (lokalt sparade + ev. server-lagrade)
+  // Sparade scheman läses ur webbläsaren. Måste ske i en effekt —
+  // localStorage under rendering ger hydration-mismatch.
   React.useEffect(() => {
-    const localSheets = listLocalAoSheets();
-    setStoredSheets(mergeAoSheetLists([], localSheets));
-    fetch('/api/ao/sheets')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.success) setStoredSheets(mergeAoSheetLists(data.sheets ?? [], localSheets));
-      })
-      .catch(() => {})
-      .finally(() => setLoadingStored(false));
+    setStoredSheets(listLocalAoSheets());
+    setLoadingStored(false);
   }, []);
 
   function validateAndSet(f: File | null | undefined) {
@@ -550,44 +518,38 @@ export default function AoImportPage() {
     setIsUploading(true);
     setResult(null);
 
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
+    // Filen tolkas i webbläsaren och sparas lokalt — inget lämnar datorn.
+    const imported = await importAoFile(file);
 
-      const response = await fetch('/api/ao/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      const data = (await response.json()) as UploadResult;
-      setResult(data);
-
-      if (data.success) {
-        // Spara i webbläsaren — serverns lagring är efemär på Netlify
-        const uploaded = (data.sheets ?? [])
-          .map((s, i) => ({ slug: s.slug, sheet: (data.parsedSheets ?? [])[i] }))
-          .filter((e): e is { slug: string; sheet: ParsedAoSheet } => Boolean(e.slug && e.sheet));
-        saveLocalAoSheets(uploaded);
-
-        // Uppdatera listan med sparade scheman
-        const localSheets = listLocalAoSheets();
-        try {
-          const sheetsRes = await fetch('/api/ao/sheets');
-          const sheetsData = await sheetsRes.json();
-          setStoredSheets(
-            mergeAoSheetLists(sheetsData.success ? (sheetsData.sheets ?? []) : [], localSheets),
-          );
-        } catch {
-          setStoredSheets(mergeAoSheetLists([], localSheets));
-        }
-      } else {
-        setError(data.error ?? 'Något gick fel vid importen.');
-      }
-    } catch {
-      setError('Nätverksfel: kunde inte nå servern. Kontrollera att appen körs.');
-    } finally {
+    if (!imported.ok) {
+      setResult({ success: false, error: imported.error });
+      setError(imported.error);
       setIsUploading(false);
+      return;
     }
+
+    saveLocalAoSheets(imported.sheets);
+
+    setResult({
+      success: true,
+      fileName: file.name,
+      sheets: imported.sheets.map(({ slug, sheet }) => ({
+        slug,
+        sheetName: sheet.sheetName,
+        vesselName: sheet.vesselName,
+        blockCount: sheet.blocks.length,
+        modeCount: {
+          is: sheet.blocks.filter((b) => b.mode === 'is').length,
+          isfri: sheet.blocks.filter((b) => b.mode === 'isfri').length,
+        },
+        exceptionCount: sheet.blocks.reduce((sum, b) => sum + b.exceptions.length, 0),
+        parseErrors: sheet.parseErrors,
+      })),
+      parsedSheets: imported.sheets.map(({ sheet }) => sheet),
+    });
+
+    setStoredSheets(listLocalAoSheets());
+    setIsUploading(false);
   }
 
   function handleDeleteStored(slug: string) {

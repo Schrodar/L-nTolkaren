@@ -5,7 +5,7 @@ import * as React from 'react';
 import { AoUpload } from '@/components/AoUpload';
 import { useAppContext } from '@/components/AppContext';
 import type { SavedPayslip } from '@/components/AppContext';
-import { deleteLocalAoSheet, listLocalAoSheets, mergeAoSheetLists } from '@/lib/ao/clientStore';
+import { deleteLocalAoSheet, listLocalAoSheets } from '@/lib/ao/clientStore';
 import { boatLabel } from '@/lib/ao/editions';
 import type { StoredAoSheetMeta } from '@/lib/ao/types';
 import { SiteNav } from '@/components/SiteNav';
@@ -90,34 +90,19 @@ function AoSection() {
   const [loading, setLoading] = React.useState(true);
   const [showUpload, setShowUpload] = React.useState(false);
 
+  // AO:n lagras bara i webbläsaren — inget serveranrop.
   const fetchSheets = React.useCallback(() => {
     setLoading(true);
-    const localSheets = listLocalAoSheets();
-    fetch('/api/ao/sheets')
-      .then((r) => r.json())
-      .then((data: { success: boolean; sheets?: AoSheetMeta[] }) => {
-        const serverSheets = data.success ? (data.sheets ?? []) : [];
-        setSheets(mergeAoSheetLists(serverSheets, localSheets));
-      })
-      .catch(() => setSheets(mergeAoSheetLists([], localSheets)))
-      .finally(() => setLoading(false));
+    setSheets(listLocalAoSheets());
+    setLoading(false);
   }, []);
 
   React.useEffect(() => {
     fetchSheets();
   }, [fetchSheets]);
 
-  async function handleDelete(slug: string) {
-    const localDeleted = deleteLocalAoSheet(slug);
-    let serverDeleted = false;
-    try {
-      const res = await fetch(`/api/ao/sheets/${encodeURIComponent(slug)}`, { method: 'DELETE' });
-      const data = await res.json();
-      serverDeleted = Boolean(data.success);
-    } catch {
-      // Servern kan sakna filen (efemär lagring) — lokal borttagning räcker
-    }
-    if (localDeleted || serverDeleted) {
+  function handleDelete(slug: string) {
+    if (deleteLocalAoSheet(slug)) {
       setSheets((prev) => prev.filter((s) => s.slug !== slug));
     }
   }

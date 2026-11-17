@@ -1,11 +1,10 @@
 /**
- * Client-side lagring av parsad AO-data i localStorage.
+ * Lagring av parsad AO-data i localStorage — enda lagringen som finns.
  *
- * Sajten deployas på Netlify där API-routes kör i serverless-miljö med
- * efemärt filsystem — `storage/ao/` på servern överlever inte mellan
- * anrop/deployer. Därför sparas uppladdade AO-scheman även i användarens
- * webbläsare, och båtlistan/kalendern läser lokalt sparad data först med
- * server-API:t som fallback (lokal utveckling).
+ * AO-filen tolkas i webbläsaren (se lib/ao/importAoFile.ts) och lämnar aldrig
+ * datorn. Det fanns tidigare ett server-API som tog emot filen och sparade
+ * resultatet i `storage/ao/`, men den lagringen var efemär på Netlify och
+ * fyllde ingen funktion — den är borttagen.
  *
  * Varje båt (slug) kan ha FLERA sparade AO-utgåvor med olika
  * giltighetsperioder (t.ex. vinter-AO + vår/höst-AO). Vid uppladdning
@@ -199,7 +198,14 @@ export function listLocalAoSheets(): StoredAoSheetMeta[] {
       // Hoppa över korrupta poster tyst
     }
   }
-  return results;
+  // Sorteringen låg tidigare i mergeAoSheetLists, som föll bort när
+  // server-listan togs bort. Utan den hamnar båtarna i lagringsordning.
+  return results.sort((a, b) =>
+    (a.vesselName ?? a.sheetName).localeCompare(
+      b.vesselName ?? b.sheetName,
+      "sv"
+    )
+  );
 }
 
 /** Tar bort båtens ALLA sparade AO-utgåvor. */
@@ -211,18 +217,3 @@ export function deleteLocalAoSheet(slug: string): boolean {
   return true;
 }
 
-/**
- * Slår ihop server- och lokal lista (dedupe på slug, lokal vinner)
- * sorterad på båtnamn enligt svensk ordning.
- */
-export function mergeAoSheetLists(
-  serverSheets: StoredAoSheetMeta[],
-  localSheets: StoredAoSheetMeta[]
-): StoredAoSheetMeta[] {
-  const bySlug = new Map<string, StoredAoSheetMeta>();
-  for (const s of serverSheets) bySlug.set(s.slug, s);
-  for (const s of localSheets) bySlug.set(s.slug, s);
-  return Array.from(bySlug.values()).sort((a, b) =>
-    (a.vesselName ?? a.sheetName).localeCompare(b.vesselName ?? b.sheetName, "sv")
-  );
-}

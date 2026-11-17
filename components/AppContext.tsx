@@ -13,7 +13,6 @@ import * as React from 'react';
 
 import { DEFAULT_TARIFFS } from '@/lib/tariffs/defaultTariffs';
 import {
-  TENURE_KEYS,
   type TariffDate,
   type TariffTable,
   type TenureKey,
@@ -103,11 +102,13 @@ function readLS<T>(key: string, fallback: T): T {
   }
 }
 
-function writeLS(key: string, value: unknown): void {
+/** Returnerar false när lagringen är full eller blockerad. */
+function writeLS(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // localStorage full eller blockerat — ignorera tyst
+    return false;
   }
 }
 
@@ -162,7 +163,7 @@ type AppContextValue = {
   listSavedMonths: () => SavedMonth[];
 
   // Lönespec-data
-  savePayslip: (payslip: SavedPayslip) => void;
+  savePayslip: (payslip: SavedPayslip) => boolean;
   loadPayslip: (monthISO: string) => SavedPayslip | null;
   listPayslips: () => SavedPayslip[];
   listPayslipsForMonth: (monthISO: string) => SavedPayslip[];
@@ -300,9 +301,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       : `${LS_PAYSLIP_PREFIX}${monthISO}`;
   }
 
-  function savePayslip(payslip: SavedPayslip) {
-    if (!payslip.monthISO) return;
-    writeLS(payslipKey(payslip.monthISO, payslip.employeeName), payslip);
+  /**
+   * Returnerar false om specen inte gick att spara. Tidigare svalde den
+   * både en saknad månad och en full lagring tyst, så gränssnittet kunde
+   * visa "Sparad" trots att ingenting skrivits — och månaden saknades
+   * sedan i summeringen utan förklaring.
+   */
+  function savePayslip(payslip: SavedPayslip): boolean {
+    if (!payslip.monthISO) return false;
+    return writeLS(payslipKey(payslip.monthISO, payslip.employeeName), payslip);
   }
 
   function loadPayslip(monthISO: string): SavedPayslip | null {

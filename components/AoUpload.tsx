@@ -3,7 +3,7 @@
 import * as React from 'react';
 
 import { saveLocalAoSheets } from '@/lib/ao/clientStore';
-import type { ParsedAoSheet } from '@/lib/ao/types';
+import { importAoFile } from '@/lib/ao/importAoFile';
 
 type Status = { type: 'idle' } | { type: 'loading' } | { type: 'success'; names: string[] } | { type: 'error'; message: string };
 
@@ -14,39 +14,22 @@ export function AoUpload({ onUploaded }: { onUploaded: () => void }) {
   async function handleFile(file: File) {
     setStatus({ type: 'loading' });
 
-    const form = new FormData();
-    form.append('file', file);
+    // Filen tolkas lokalt och sparas i webbläsaren — inget skickas till servern.
+    const result = await importAoFile(file);
 
-    try {
-      const res = await fetch('/api/ao/upload', { method: 'POST', body: form });
-      const data = await res.json();
-
-      if (!data.success) {
-        setStatus({ type: 'error', message: data.error ?? 'Uppladdning misslyckades.' });
-        return;
-      }
-
-      const names: string[] = (data.sheets ?? []).map(
-        (s: { vesselName?: string; sheetName?: string }) =>
-          (s.vesselName ?? s.sheetName ?? '').replace(/\s+Reg\..*$/i, '').trim(),
-      );
-
-      // Spara även i webbläsaren — på Netlify är serverns filsystem efemärt,
-      // så lokal lagring är det som faktiskt persisterar för användaren.
-      // sheets[] och parsedSheets[] byggs i samma ordning i upload-routen.
-      const sheets: { slug: string }[] = data.sheets ?? [];
-      const parsed: ParsedAoSheet[] = data.parsedSheets ?? [];
-      saveLocalAoSheets(
-        sheets
-          .map((s, i) => ({ slug: s.slug, sheet: parsed[i] }))
-          .filter((e): e is { slug: string; sheet: ParsedAoSheet } => Boolean(e.slug && e.sheet)),
-      );
-
-      setStatus({ type: 'success', names });
-      onUploaded();
-    } catch {
-      setStatus({ type: 'error', message: 'Nätverksfel vid uppladdning.' });
+    if (!result.ok) {
+      setStatus({ type: 'error', message: result.error });
+      return;
     }
+
+    saveLocalAoSheets(result.sheets);
+
+    const names = result.sheets.map(({ sheet }) =>
+      (sheet.vesselName ?? sheet.sheetName ?? '').replace(/\s+Reg\..*$/i, '').trim(),
+    );
+
+    setStatus({ type: 'success', names });
+    onUploaded();
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -73,7 +56,7 @@ export function AoUpload({ onUploaded }: { onUploaded: () => void }) {
         disabled={status.type === 'loading'}
         className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-[#F5F7FF] hover:bg-white/15 disabled:opacity-50"
       >
-        {status.type === 'loading' ? 'Laddar upp…' : 'Ladda upp AO (Excel)'}
+        {status.type === 'loading' ? 'Tolkar…' : 'Ladda upp AO (Excel)'}
       </button>
       <input
         ref={inputRef}

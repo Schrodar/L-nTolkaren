@@ -7,12 +7,14 @@ Webbapp för skärgårdstrafikens däckspersonal (Blidösundsbolaget m.fl.): tol
 **All användardata stannar i webbläsaren (localStorage).** Det är ett medvetet designval — vi slipper GDPR-hantering och användarna ska aldrig behöva misstänka att vi läser deras lönespecar.
 
 - Lönespec-PDF:er parsas client-side med pdf.js och lämnar aldrig webbläsaren.
-- AO-Excel skickas till `/api/ao/upload` för parsning men sparas inte på servern.
+- AO-Excel parsas också client-side (`lib/ao/importAoFile.ts` → `parseAoWorkbook`) och lämnar aldrig webbläsaren. Det fanns tidigare ett `/api/ao/upload` som tog emot filen — borttaget, eftersom inget användarmaterial ska passera Netlify.
 - Inför ALDRIG databas, server-side lagring av användardata eller analytics som fångar lönespec-innehåll. Ny persistens = localStorage (se `lib/ao/clientStore.ts`).
 
 ## Deployment
 
-Deployas på **Netlify**. API-routes kör som serverless-funktioner med efemärt filsystem — `fs.writeFileSync` persisterar INTE i produktion. `storage/ao/` fungerar bara i lokal utveckling och är gitignorad.
+Deployas på **Netlify**. Appen har inga API-routes som tar emot användardata — allt tolkas och lagras i webbläsaren. Netlify ser därför bara vanlig trafikmetadata (IP, sökväg, tidpunkt), aldrig innehållet i någons lönespec eller AO.
+
+Observera att skyddet vilar på att du kontrollerar bygget: den som styr utrullningen serverar också JavaScripten. Arkitekturen gör exfiltrering onödig, inte omöjlig.
 
 ## Arkitektur i korthet
 
@@ -21,7 +23,7 @@ Deployas på **Netlify**. API-routes kör som serverless-funktioner med efemärt
 - `components/WorkCalendar.tsx` — kalendern: AO-pass per dag, lönespec-import där art315-timmarna matchas mot delmängder av dagens AO-pass (hanterar på/avmönstring med två pass samma dag). Avvikelser färgas efter riktning: ljusgrönt när specen har fler timmar än AO, rött när den har färre. Båt kan sättas per dag (`boatByDate`, valbart i dagmodalen med "gäller resten av månaden") — AO-utgåvor hålls per båt i `sheetsByBoat` och jämförelsen körs om mot den nya båtens tider.
 - `lib/ao/clientStore.ts` — localStorage-lagring av AO (nyckel `lonetolkaren.ao.sheets.v2`). Flera utgåvor per båt (vinter + vår/höst + sommar). Överlappande perioder ersätts vid uppladdning.
 - `lib/ao/editions.ts` — väljer AO-utgåva **per dag** (`pickEditionForDate`), inte per månad, så att ett säsongsbyte mitt i månaden (t.ex. vår/höst t.o.m. 14 juni, sommar från 15 juni) mappas ut sömlöst. Utgåvan vars **schemablock** täcker dagen går före den vars rubrikdatum gör det: filernas rubriker och block går inte alltid i takt (vinter-AO:n säger t.o.m. 2026-03-31 men har schema t.o.m. 2026-04-01, medan vår/höst-rubriken börjar 2026-04-01 fast schemat börjar 04-02). `editionStartsInMonth` ger dagarna där en ny utgåva börjar gälla → "Ny AO"-notering i kalendern. Utgåvor utan is-variant körs alltid som `isfri`.
-- `lib/ao/parseAoWorkbook.ts` — AO-Excel-parser (block, veckoschema, undantag, is/isfri, vår/höst-perioder).
+- `lib/ao/parseAoWorkbook.ts` — AO-Excel-parser (block, veckoschema, undantag, is/isfri, vår/höst-perioder). Körs i webbläsaren; `xlsx` importeras dynamiskt så att biblioteket bara hämtas vid uppladdning.
 - `lib/summarizePayslipArtGroups.ts` — lönespec-arter (315 = ordinarie tid, 301/302 = övertid, 311/312 = komp, 483 = plustid, 700 = semester, 810/81001 = VAB, 2101 = maskindagar). Art315 summeras per datum.
   - **VAB:** art315 är *nominell* tid och ligger kvar under frånvaron (räknas in i årsarbetstiden de första 14 dagarna) — VAB-timmarna ingår alltså redan i jämförelsen mot AO. Faktiskt arbetad tid = art315 − art810. Specens flerdagarsintervall (`rangesISO`) fördelas i kalendern proportionellt mot art315 per dag så att intervallets summa bevaras. Löneavdraget tas direkt från art81001 (`sekByDateISO`) i stället för att räknas fram — specens á-pris följer inte tariffens divisorer.
 - `lib/traktamente/` — obetalt traktamente (övernattning ombord): dagar markeras manuellt i dagmodalen och sparas per månad (`traktamenteDates` + `natthamnByDate`); natthamnar återanvänds via `knownNatthamnar` i inställningarna. `buildTraktamenteRows` bygger årslistan (tider från AO, sluttiden uppskriven om lönespecen har fler timmar) och `traktamentePdf` renderar PDF:en med jsPDF client-side.

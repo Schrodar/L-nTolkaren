@@ -23,6 +23,18 @@ function monthLabel(monthISO: string): string {
   return fmtMonth.format(new Date(`${monthISO}-01T12:00:00`));
 }
 
+/**
+ * Lönespecen för månad X avser arbetet i månad X−1. Augustis timmar ligger
+ * alltså i septemberspecen — den spec man ska leta efter när en månad saknas.
+ */
+function specManadLabel(monthISO: string): string {
+  const ar = Number(monthISO.slice(0, 4));
+  const manad = Number(monthISO.slice(5, 7));
+  if (!Number.isFinite(ar) || !Number.isFinite(manad)) return '';
+  const nasta = manad === 12 ? `${ar + 1}-01` : `${ar}-${String(manad + 1).padStart(2, '0')}`;
+  return monthLabel(nasta);
+}
+
 export default function SummeringPage() {
   const { listPayslips } = useAppContext();
 
@@ -110,8 +122,14 @@ export default function SummeringPage() {
             <section className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4 sm:p-6">
               <h2 className="mb-1 text-lg font-semibold">Per månad</h2>
               <p className="mb-4 text-xs text-[#F5F7FF]/60">
-                Månaden är arbetsmånaden, inte specmånaden — augustispecen ligger
-                alltså på juli.
+                Månaden är arbetsmånaden, inte specmånaden. Lönespecen för en
+                månad avser arbetet i månaden före — augustis tid syns alltså i
+                septemberspecen, och julis i augustispecen. Månader märkta{' '}
+                <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-200">
+                  ingen spec
+                </span>{' '}
+                saknar importerad lönespec och räknas inte in i summan — raden
+                visar vilken spec som fyller den.
               </p>
 
               <div className="overflow-x-auto">
@@ -139,22 +157,39 @@ export default function SummeringPage() {
                     {period.manader.map((m) => (
                       <tr
                         key={m.monthISO}
-                        className="border-b border-white/5 last:border-0"
+                        className={`border-b border-white/5 last:border-0 ${
+                          m.saknasImport ? 'text-amber-200/70' : ''
+                        }`}
                       >
                         <td
                           className="py-2 pr-3 capitalize"
-                          title={m.kallor.join(', ')}
+                          title={
+                            m.saknasImport
+                              ? `Ingen lönespec importerad. Tiden för ${monthLabel(m.monthISO)} finns i lönespecen för ${specManadLabel(m.monthISO)}.`
+                              : m.kallor.join(', ')
+                          }
                         >
                           {monthLabel(m.monthISO)}
+                          {m.saknasImport ? (
+                            <>
+                              <span className="ml-2 rounded bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-amber-200">
+                                ingen spec
+                              </span>
+                              <span className="mt-0.5 block text-[11px] font-normal normal-case text-amber-200/60">
+                                Finns i lönespecen för{' '}
+                                {specManadLabel(m.monthISO)}
+                              </span>
+                            </>
+                          ) : null}
                         </td>
                         <td
                           className="py-2 pr-3 text-right tabular-nums"
                           title={`${m.arbetsDagar} arbetsdagar, ${m.semesterDagar} semesterdagar`}
                         >
-                          {fmtInt.format(m.dagar)}
+                          {m.saknasImport ? '–' : fmtInt.format(m.dagar)}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums text-[#F5F7FF]/75">
-                          {fmtHours.format(m.nominell)} h
+                          {m.saknasImport ? '–' : `${fmtHours.format(m.nominell)} h`}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums text-[#F5F7FF]/75">
                           {m.plus > 0 ? `${fmtHours.format(m.plus)} h` : '–'}
@@ -170,7 +205,7 @@ export default function SummeringPage() {
                             : '–'}
                         </td>
                         <td className="py-2 text-right font-semibold tabular-nums">
-                          {fmtHours.format(m.total)} h
+                          {m.saknasImport ? '–' : `${fmtHours.format(m.total)} h`}
                         </td>
                       </tr>
                     ))}

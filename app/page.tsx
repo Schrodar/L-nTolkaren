@@ -22,7 +22,9 @@ export default function Page() {
   const [isParsing, setIsParsing] = React.useState(false);
   const [artGroupsData, setArtGroupsData] =
     React.useState<PayslipArtGroups | null>(null);
-  const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saved'>('idle');
+  const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saved' | 'error'>(
+    'idle',
+  );
   const [confirmOverwrite, setConfirmOverwrite] = React.useState<{
     payslip: Parameters<typeof savePayslip>[0];
     existingName: string;
@@ -129,7 +131,10 @@ export default function Page() {
       overview.art010?.monthISO ??
       overview.art702?.monthISO ??
       null;
-    if (!monthISO) return;
+    if (!monthISO) {
+      setSaveStatus('error');
+      return;
+    }
 
     const employeeName = artGroupsData.artGroups.find((g) => g.art === '0')?.rows[0] ?? null;
     const payslipToSave = {
@@ -154,15 +159,14 @@ export default function Page() {
       return;
     }
 
-    savePayslip(payslipToSave);
-    setSaveStatus('saved');
+    setSaveStatus(savePayslip(payslipToSave) ? 'saved' : 'error');
   }
 
   function doOverwrite() {
     if (!confirmOverwrite) return;
-    savePayslip(confirmOverwrite.payslip);
+    const ok = savePayslip(confirmOverwrite.payslip);
     setConfirmOverwrite(null);
-    setSaveStatus('saved');
+    setSaveStatus(ok ? 'saved' : 'error');
   }
 
   return (
@@ -362,10 +366,16 @@ export default function Page() {
                   'rounded-xl border px-3 py-2 text-sm font-medium',
                   saveStatus === 'saved'
                     ? 'border-green-400/30 bg-green-500/10 text-green-300'
-                    : 'border-sky-400/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20',
+                    : saveStatus === 'error'
+                      ? 'border-red-400/30 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                      : 'border-sky-400/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20',
                 ].join(' ')}
               >
-                {saveStatus === 'saved' ? 'Sparad' : 'Spara till löneberäkning'}
+                {saveStatus === 'saved'
+                  ? 'Sparad'
+                  : saveStatus === 'error'
+                    ? 'Kunde inte sparas — försök igen'
+                    : 'Spara till löneberäkning'}
               </button>
               <button
                 type="button"

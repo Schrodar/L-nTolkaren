@@ -7,6 +7,8 @@
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
+    // Testfilerna körs av Nodes testkörare och importerar med .ts-ändelse.
+    "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
