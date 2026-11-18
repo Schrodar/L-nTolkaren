@@ -79,6 +79,8 @@ export type ManualSalaryInput = {
   overtimeWeekdayHours: number;
   overtimeWeekendHours: number;
   engineAttendantDays: number;
+  /** Timmar ur kompsaldot som tas ut i pengar i stället för ledighet (§11.3). */
+  kompCashHours: number;
   activeAllowances: Set<AllowanceKey>;
   allowanceAmounts: Record<AllowanceKey, number>;
 };
@@ -93,6 +95,8 @@ export type SalaryBreakdown = {
   engineAttendant: number;
   rederiAllowance: number;
   dackmanAllowance: number;
+  /** Utbetald komptid (§11.3). Noll i den automatiska beräkningen. */
+  kompCashPay: number;
   total: number;
   // Detaljer för visning
   obHours: number;
@@ -100,6 +104,7 @@ export type SalaryBreakdown = {
   overtimeWeekendHours: number;
   totalWorkedHours: number;
   engineAttendantDays: number;
+  kompCashHours: number;
   sjukAvdrag: number;
   sjukHours: number;
 };
@@ -227,14 +232,77 @@ function isWeekendForOvertime(dateISO: string): boolean {
  * Timsatserna som allt räknas ur. Delas av den automatiska och den manuella
  * beräkningen så att de aldrig kan glida isär.
  */
-export function salaryRates(tariff: TariffTable, tenure: TenureKey) {
-  const monthlyRate = tariff.monthly[tenure];
+/**
+ * De fasta månadstilläggen — rederi- och däckmanstillägg. Maskinskötsel
+ * räknas per dag och ingår inte.
+ */
+export function fixedMonthlySupplements(
+  activeAllowances: Set<AllowanceKey>,
+  allowanceAmounts: Record<AllowanceKey, number>
+): number {
+  let summa = 0;
+  if (activeAllowances.has('rederi')) summa += allowanceAmounts['rederi'];
+  if (activeAllowances.has('dackman')) summa += allowanceAmounts['dackman'];
+  return summa;
+}
+
+/**
+ * Timsatserna som allt räknas ur.
+ *
+ * `extraMonthly` är de fasta månadstilläggen. Delarna ska tillämpas på hela
+ * det fasta månadsbeloppet, inte bara tarifflönen — verifierat mot en spec
+ * där månadslön 33 724 + däckman 2 721 + rederi 655 = 37 100 ger exakt de
+ * satser arbetsgivaren använt: 37 100 ÷ 152 = 244,08 (art 320, komp till
+ * pengar) och 37 100 ÷ 104 = 356,73 (art 301, övertid). Enbart tarifflönen
+ * hade gett 221,87 respektive 324,27.
+ *
+ * Utelämnas argumentet räknas bara tarifflönen, vilket är vad den
+ * automatiska kalenderberäkningen gör i dag.
+ */
+export function salaryRates(
+  tariff: TariffTable,
+  tenure: TenureKey,
+  extraMonthly = 0
+) {
+  const monthlyRate = tariff.monthly[tenure] + extraMonthly;
   return {
     monthlyRate,
     obRatePerHour: monthlyRate / 300,
     otWeekdayRate: monthlyRate / 104, // §6.3 vardag inkl. fredag
     otWeekendRate: monthlyRate / 72,  // §6.3 lördag, söndag, helg
+    /**
+     * Komptid som tas ut kontant. Värderas i dag med samma delare som
+     * övertiden, alltså det den var värd när den tjänades in.
+     */
+    kompWeekdayRate: monthlyRate / 104,
+    kompWeekendRate: monthlyRate / 72,
+    /** Sjukavdrag per frånvarotimme. */
+    sickRatePerHour: monthlyRate / 173,
+    /**
+     * §11.3: "Vederlags- och kompensationstid, som ersätts kontant, utgår
+     * för varje timme med belopp motsvarande 1/152 av månadslönen."
+     *
+     * Satsen gäller per timme i kompsaldot. Uppräkningen har redan skett när
+     * timmarna tjänades in — §6.3 ger 1,4 h vardag och 2 h helg per
+     * övertidstimme, §7.2 ger 0,5 h per OB-timme — så här multipliceras
+     * ingenting mer.
+     */
+    kompCashRate: monthlyRate / 152,
   };
+}
+
+/**
+ * Timlönen för en anställningsform. Månadsanställda har ingen — deras
+ * grundlön är månadslönen rakt av.
+ */
+export function hourlyRate(
+  tariff: TariffTable,
+  tenure: TenureKey,
+  employmentType: EmploymentType
+): number | null {
+  if (employmentType === 'hourlySeasonal') return tariff.hourlySeasonal[tenure];
+  if (employmentType === 'hourlyShortTerm') return tariff.hourlyShortTerm[tenure];
+  return null;
 }
 
 /** Grundlön: månadslön rakt av, annars timmar × timlön enligt §11.2. */
@@ -286,14 +354,17 @@ export function calculateManualSalary(
     overtimeWeekdayHours,
     overtimeWeekendHours,
     engineAttendantDays,
+    kompCashHours,
     activeAllowances,
     allowanceAmounts,
   } = input;
 
-  const { obRatePerHour, otWeekdayRate, otWeekendRate } = salaryRates(
-    tariff,
-    tenure
-  );
+  const { obRatePerHour, otWeekdayRate, otWeekendRate, kompCashRate } =
+    salaryRates(
+      tariff,
+      tenure,
+      fixedMonthlySupplements(activeAllowances, allowanceAmounts)
+    );
 
   const baseSalary = calcBaseSalary(
     tariff,
@@ -309,6 +380,7 @@ export function calculateManualSalary(
     activeAllowances,
     allowanceAmounts
   );
+  const kompCashPay = kompCashHours * kompCashRate;
 
   return {
     baseSalary,
@@ -318,6 +390,7 @@ export function calculateManualSalary(
     engineAttendant,
     rederiAllowance,
     dackmanAllowance,
+    kompCashPay,
     total:
       baseSalary +
       obPay +
@@ -325,12 +398,14 @@ export function calculateManualSalary(
       overtimeWeekend +
       engineAttendant +
       rederiAllowance +
-      dackmanAllowance,
+      dackmanAllowance +
+      kompCashPay,
     obHours,
     overtimeWeekdayHours,
     overtimeWeekendHours,
     totalWorkedHours: ordinaryHours,
     engineAttendantDays,
+    kompCashHours,
     sjukAvdrag: 0,
     sjukHours: 0,
   };
@@ -406,12 +481,16 @@ export function calculateMonthlySalary(input: SalaryInput): SalaryBreakdown {
     engineAttendant,
     rederiAllowance,
     dackmanAllowance,
+    // Utbetald komptid hör till den manuella räknaren — kalendern bygger
+    // på schemalagda dagar och känner inte till uttag ur kompsaldot.
+    kompCashPay: 0,
     total,
     obHours,
     overtimeWeekdayHours,
     overtimeWeekendHours,
     totalWorkedHours,
     engineAttendantDays: totalEngineAttendantDays,
+    kompCashHours: 0,
     sjukAvdrag: 0,
     sjukHours: 0,
   };

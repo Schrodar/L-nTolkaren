@@ -32,7 +32,10 @@ import {
   pickEditionForDate,
 } from '@/lib/ao/editions';
 import { getHolidayInfo } from '@/lib/ao/holidayRules';
-import { calculateMonthlySalary } from '@/lib/salary/calculateMonthlySalary';
+import {
+  calculateMonthlySalary,
+  salaryRates,
+} from '@/lib/salary/calculateMonthlySalary';
 import type { DaySalaryInput } from '@/lib/salary/calculateMonthlySalary';
 import type { AoMode, ParsedAoSheet, StoredAoSheetMeta } from '@/lib/ao/types';
 import type { BoatOption, ResolvedDaySchedule } from '@/lib/schedule/types';
@@ -1598,10 +1601,11 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
         const sb = salaryBreakdown;
 
-        // Komp-övertid: värde vid kontant uttag (laborera med kompPayout)
-        const monthlyRateKomp = selectedTariff.monthly[groundSalarySelection.tenure];
-        const kompWdRate = monthlyRateKomp / 104;
-        const kompWeRate = monthlyRateKomp / 72;
+        // Komp-övertid: värde vid kontant uttag (laborera med kompPayout).
+        // Satserna kommer från lib/salary — avtalets delare bor på ett ställe.
+        const satser = salaryRates(selectedTariff, groundSalarySelection.tenure);
+        const kompWdRate = satser.kompWeekdayRate;
+        const kompWeRate = satser.kompWeekendRate;
         const kompTotalKr = kompHoursWeekday * kompWdRate + kompHoursWeekend * kompWeRate;
         const kompTotalHours = kompHoursWeekday + kompHoursWeekend;
 
@@ -1674,7 +1678,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         {sb.obPay.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
                       </div>
                       <div className="text-[11px] text-violet-300/40">
-                        {sb.obHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {(sb.baseSalary / 300).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
+                        {sb.obHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {satser.obRatePerHour.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
                       </div>
                     </div>
                   </div>
@@ -1689,7 +1693,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         {sb.overtimeWeekday.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
                       </div>
                       <div className="text-[11px] text-orange-300/40">
-                        {sb.overtimeWeekdayHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {(sb.baseSalary / 104).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
+                        {sb.overtimeWeekdayHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {satser.otWeekdayRate.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
                       </div>
                     </div>
                   </div>
@@ -1704,7 +1708,7 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
                         {sb.overtimeWeekend.toLocaleString('sv-SE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} kr
                       </div>
                       <div className="text-[11px] text-rose-300/40">
-                        {sb.overtimeWeekendHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {(sb.baseSalary / 72).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
+                        {sb.overtimeWeekendHours.toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} h × {satser.otWeekendRate.toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kr/h
                       </div>
                     </div>
                   </div>
@@ -1808,8 +1812,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
                 {/* Sjukavdrag */}
                 {(() => {
-                  const monthlyRate = selectedTariff.monthly[groundSalarySelection.tenure];
-                  const sjukPerTimme = monthlyRate / 173;
+                  const sjukPerTimme = salaryRates(
+                    selectedTariff,
+                    groundSalarySelection.tenure,
+                  ).sickRatePerHour;
                   const sjukHours = Object.values(sjukByDate).reduce((s, h) => s + h, 0);
                   const sjukAvdrag = sjukHours * sjukPerTimme;
                   if (sjukHours <= 0) return null;
@@ -1848,8 +1854,10 @@ export function WorkCalendar({ refreshKey = 0 }: { refreshKey?: number }) {
 
                 {/* Total */}
                 {(() => {
-                  const monthlyRate = selectedTariff.monthly[groundSalarySelection.tenure];
-                  const sjukPerTimme = monthlyRate / 173;
+                  const sjukPerTimme = salaryRates(
+                    selectedTariff,
+                    groundSalarySelection.tenure,
+                  ).sickRatePerHour;
                   const sjukHours = Object.values(sjukByDate).reduce((s, h) => s + h, 0);
                   const sjukAvdrag = sjukHours * sjukPerTimme;
                   const adjustedTotal = sb.total - sjukAvdrag - vabAvdrag + (kompPayout ? kompTotalKr : 0);

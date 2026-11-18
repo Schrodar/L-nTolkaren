@@ -11,6 +11,8 @@ import { SiteNav } from '@/components/SiteNav';
 import { TariffEditor } from '@/components/TariffEditor';
 import {
   calculateManualSalary,
+  fixedMonthlySupplements,
+  hourlyRate,
   salaryRates,
 } from '@/lib/salary/calculateMonthlySalary';
 
@@ -36,6 +38,8 @@ type ManuellState = {
   overtidVardag: string;
   overtidHelg: string;
   maskinDagar: string;
+  /** Timmar ur kompsaldot som tas ut i pengar i stället för ledighet. */
+  kompTimmar: string;
 };
 
 const TOMT: ManuellState = {
@@ -45,6 +49,7 @@ const TOMT: ManuellState = {
   overtidVardag: '',
   overtidHelg: '',
   maskinDagar: '',
+  kompTimmar: '',
 };
 
 const ANSTALLNINGSFORMER: Array<{
@@ -110,7 +115,13 @@ export default function LoneberakningPage() {
     }
   }, [state]);
 
-  const satser = salaryRates(selectedTariff, groundSalarySelection.tenure);
+  // Delarna tillämpas på hela det fasta månadsbeloppet — tarifflön plus de
+  // fasta tilläggen man faktiskt har. Har man inga blir basen tarifflönen.
+  const satser = salaryRates(
+    selectedTariff,
+    groundSalarySelection.tenure,
+    fixedMonthlySupplements(activeAllowances, allowanceAmounts),
+  );
 
   const lon = React.useMemo(() => {
     if (!state) return null;
@@ -123,6 +134,7 @@ export default function LoneberakningPage() {
       overtimeWeekdayHours: tillTal(state.overtidVardag),
       overtimeWeekendHours: tillTal(state.overtidHelg),
       engineAttendantDays: tillTal(state.maskinDagar),
+      kompCashHours: tillTal(state.kompTimmar),
       activeAllowances,
       allowanceAmounts,
     });
@@ -134,12 +146,11 @@ export default function LoneberakningPage() {
     allowanceAmounts,
   ]);
 
-  const timlon =
-    groundSalarySelection.employmentType === 'hourlySeasonal'
-      ? selectedTariff.hourlySeasonal[groundSalarySelection.tenure]
-      : groundSalarySelection.employmentType === 'hourlyShortTerm'
-        ? selectedTariff.hourlyShortTerm[groundSalarySelection.tenure]
-        : null;
+  const timlon = hourlyRate(
+    selectedTariff,
+    groundSalarySelection.tenure,
+    groundSalarySelection.employmentType,
+  );
 
   function satt(fält: keyof ManuellState, värde: string) {
     setState((prev) => (prev ? { ...prev, [fält]: värde } : prev));
@@ -254,6 +265,12 @@ export default function LoneberakningPage() {
                   varde={state.maskinDagar}
                   onChange={(v) => satt('maskinDagar', v)}
                 />
+                <Falt
+                  etikett="Komptimmar att ta ut kontant"
+                  hjalp={`${fmtKr.format(satser.kompCashRate)} kr/tim`}
+                  varde={state.kompTimmar}
+                  onChange={(v) => satt('kompTimmar', v)}
+                />
               </div>
             </section>
 
@@ -290,6 +307,11 @@ export default function LoneberakningPage() {
                     etikett="Maskinskötseltillägg"
                     detalj={`${fmtTal.format(lon.engineAttendantDays)} dagar × ${fmtKr.format(allowanceAmounts['maskinskots'])} kr`}
                     belopp={lon.engineAttendant}
+                  />
+                  <Rad
+                    etikett="Uttagen komptid"
+                    detalj={`${fmtTal.format(lon.kompCashHours)} h × ${fmtKr.format(satser.kompCashRate)} kr — månadslön ÷ 152 (§11.3)`}
+                    belopp={lon.kompCashPay}
                   />
                   <Rad
                     etikett="Rederitillägg"
