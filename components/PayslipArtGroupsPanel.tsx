@@ -45,6 +45,8 @@ function MonthCalendar({
   art302DatesISO,
   art302BreakdownByDayISO,
   sicknessDaysISO,
+  sicknessHoursByDayISO,
+  karensDaysISO,
   semesterDaysISO,
   vabDaysISO,
   vabBreakdownByDayISO,
@@ -67,6 +69,10 @@ function MonthCalendar({
   art302DatesISO?: string[];
   art302BreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
   sicknessDaysISO?: string[];
+  /** Sjuktimmar per dag (art800), där specen anger dem. */
+  sicknessHoursByDayISO?: Record<string, number>;
+  /** Dagarna som ligger i karenstillfället (art80001) — resten är dag 2-14. */
+  karensDaysISO?: string[];
   semesterDaysISO?: string[];
   vabDaysISO?: string[];
   vabBreakdownByDayISO?: Record<string, { hours?: number; sek?: number }>;
@@ -110,6 +116,14 @@ function MonthCalendar({
   const sicknessSet = React.useMemo(
     () => new Set(sicknessDaysISO ?? []),
     [sicknessDaysISO],
+  );
+  const sicknessHoursByDay = React.useMemo(
+    () => sicknessHoursByDayISO ?? {},
+    [sicknessHoursByDayISO],
+  );
+  const karensSet = React.useMemo(
+    () => new Set(karensDaysISO ?? []),
+    [karensDaysISO],
   );
   const semesterSet = React.useMemo(
     () => new Set(semesterDaysISO ?? []),
@@ -288,6 +302,16 @@ function MonthCalendar({
   const selectedHasSickness = React.useMemo(() => {
     return !!selectedISO && sicknessSet.has(selectedISO);
   }, [selectedISO, sicknessSet]);
+
+  const selectedSjukHours = React.useMemo(() => {
+    if (!selectedISO) return null;
+    const h = sicknessHoursByDay[selectedISO];
+    return typeof h === 'number' && Number.isFinite(h) && h > 0 ? h : null;
+  }, [selectedISO, sicknessHoursByDay]);
+
+  const selectedIsKarens = React.useMemo(() => {
+    return !!selectedISO && karensSet.has(selectedISO);
+  }, [selectedISO, karensSet]);
 
   const selectedShowExpress = React.useMemo(() => {
     return (
@@ -846,10 +870,21 @@ function MonthCalendar({
             {selectedHasSickness ? (
               <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <div className="text-xs font-semibold text-gray-700">
-                  Sjukdom (80001)
+                  Sjukdom (800)
                 </div>
+                {selectedSjukHours != null ? (
+                  <div className="mt-1 flex items-center justify-between text-sm">
+                    <div className="text-gray-600">Frånvaro</div>
+                    <div className="tabular-nums font-semibold text-gray-900">
+                      {fmtHours.format(selectedSjukHours)} h
+                    </div>
+                  </div>
+                ) : null}
                 <div className="mt-1 text-sm text-gray-700">
-                  Denna dag är markerad som sjukdom/karenstillfälle.
+                  {selectedIsKarens
+                    ? 'Karenstillfället — avdrag med full timlön.'
+                    : 'Sjukdom dag 2-14 — avdrag med 20 % av timlönen (art 80002).'}{' '}
+                  Den nominella tiden (art 315) ligger kvar under frånvaron.
                 </div>
               </div>
             ) : null}
@@ -954,6 +989,10 @@ export function PayslipArtGroupsPanel({
     if (overview.art4851) set.add('4851');
     if (overview.art350) set.add('350');
     if (overview.art80001) set.add('80001');
+    // Sjukkortet täcker hela frånvaron: timmarna (800) och båda avdragen.
+    if (overview.art800) set.add('800');
+    if (overview.art80002) set.add('80002');
+    if (overview.art806) set.add('806');
     if (overview.art70001) set.add('70001');
     if (overview.artK7022) set.add('K7022');
     if (overview.artK315) set.add('K315');
@@ -1186,6 +1225,16 @@ export function PayslipArtGroupsPanel({
       'Sjukdom karens (80001)',
       art80001?.sekTotalFromRow ?? art80001?.sekTotalComputed ?? null,
     );
+    pushIfNumber(
+      'Sjukdom dag 2-14 (80002)',
+      overview.art80002?.sekTotal,
+      { count: overview.art80002?.rowsCount },
+    );
+    pushIfNumber(
+      'Sjuk-OB (806)',
+      overview.art806?.sekTotal,
+      { count: overview.art806?.rowsCount },
+    );
 
     // Aggregates
     pushIfNumber('Friskvård (9190 + K5441)', friskvard?.sekTotal);
@@ -1222,6 +1271,10 @@ export function PayslipArtGroupsPanel({
     art81103?.rowsCount,
     art80001?.sekTotalComputed,
     art80001?.sekTotalFromRow,
+    overview.art80002?.sekTotal,
+    overview.art80002?.rowsCount,
+    overview.art806?.sekTotal,
+    overview.art806?.rowsCount,
     art9001?.sekTotal,
     art9002?.sekTotal,
     art010?.sekTotal,
@@ -1411,7 +1464,16 @@ export function PayslipArtGroupsPanel({
     null;
   const hasAnyOvertime = !!Object.keys(overtimeBreakdownByDayISO).length;
   const art302DatesISO = overview.art302?.datesISO ?? [];
-  const sicknessDaysISO = overview.art80001?.datesISO ?? [];
+  // Hela sjukperioden, inte bara karensen: art80001 täcker de första timmarna
+  // medan dag 2-14 ligger på art80002. art800 bär själva frånvarodagarna.
+  const sicknessDaysISO = React.useMemo(() => {
+    const set = new Set<string>([
+      ...(overview.art800?.datesISO ?? []),
+      ...(overview.art80001?.datesISO ?? []),
+      ...(overview.art80002?.datesISO ?? []),
+    ]);
+    return Array.from(set).sort();
+  }, [overview.art800, overview.art80001, overview.art80002]);
   const semesterDaysISO = overview.art700?.datesISO ?? EMPTY_DATES;
 
   // Arbetsdagar i kalendern: art315 för tillsvidareanställda och art010 för
@@ -1465,9 +1527,7 @@ export function PayslipArtGroupsPanel({
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-emerald-900/70">Bruttolön</span>
                 <span className="tabular-nums font-semibold text-emerald-900">
-                  {formatSek(
-                    lonebesked.bruttoFranSpec ?? lonebesked.bruttoBerakat,
-                  )}
+                  {formatSek(lonebesked.bruttoBerakat)}
                 </span>
               </div>
               <div className="flex items-baseline justify-between gap-3">
@@ -1485,6 +1545,26 @@ export function PayslipArtGroupsPanel({
                 </div>
               ) : null}
             </div>
+
+            {/* Varje krona ovan är summerad ur raderna. Går summan inte ihop
+                med specens egen bruttolön (art9991) har vi missat en art —
+                det ska synas, inte döljas bakom specens siffra. */}
+            {typeof lonebesked.bruttoAvvikelse === 'number' &&
+            Math.abs(lonebesked.bruttoAvvikelse) >= 1 ? (
+              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="font-semibold">
+                  Summan av raderna går inte ihop med specens bruttolön
+                </div>
+                <div className="mt-1">
+                  Vi får {formatSek(lonebesked.bruttoBerakat)} när vi lägger
+                  ihop raderna, medan specen anger{' '}
+                  {formatSek(lonebesked.bruttoFranSpec ?? 0)} (art 9991) — en
+                  skillnad på {formatSek(lonebesked.bruttoAvvikelse)}. Troligen
+                  finns en art vi inte tolkar. Beloppen här bygger på raderna vi
+                  faktiskt läst, så kontrollera mot papperet.
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1670,6 +1750,18 @@ export function PayslipArtGroupsPanel({
               />
             ) : null}
 
+            {overview.art800 || art80001 ? (
+              <Rad
+                etikett="Sjukfrånvaro"
+                detalj={
+                  overview.art800
+                    ? `Art 800 · ${overview.art800.datesISO.length} dagar · nominell tid ligger kvar`
+                    : 'Art 80001 · karenstillfälle'
+                }
+                varde={`${formatHours(overview.art800?.hoursTotal ?? art80001?.hoursTotal ?? 0)} h`}
+              />
+            ) : null}
+
             {!art315 &&
             !art010 &&
             !art301 &&
@@ -1691,6 +1783,8 @@ export function PayslipArtGroupsPanel({
             art302DatesISO={art302DatesISO}
             art302BreakdownByDayISO={art302BreakdownByDayISO}
             sicknessDaysISO={sicknessDaysISO}
+            sicknessHoursByDayISO={overview.art800?.hoursByDateISO}
+            karensDaysISO={overview.art80001?.datesISO}
             semesterDaysISO={semesterDaysISO}
             vabDaysISO={vabDaysISO}
             vabBreakdownByDayISO={vabBreakdownByDayISO}

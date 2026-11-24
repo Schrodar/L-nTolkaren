@@ -186,7 +186,18 @@ function scanArtRows(lines: Line[]): ScannadArtRad[] {
   const harTabellhuvud = lines.some((l) => TABLE_HEADER_RE.test(l.text));
   let iTabell = !harTabellhuvud;
 
+  // En art-rad kan brytas över flera rader när specen har en underrubrik:
+  //   "301 Övertid"
+  //   "Slutlön årsarbetstid"
+  //   "2026-09-01 - 2026-09-01  40,69  255,68  10 403,73"
+  // Saknar art-raden både datum och belopp väntar den på sin datarad, och
+  // nästa rad som börjar med ett datumintervall hör till den. Utan det här
+  // tappades hela slutlönen på en spec — 21 951,76 kr föll ur bruttolönen.
+  const dateRangeAnywhereRe = /\d{4}-\d{2}-\d{2}\s*-\s*\d{4}-\d{2}-\d{2}/;
+  const beloppRe = /\d,\d{2}/;
+
   let currentArt: string | null = null;
+  let vantarPaDatarad = false;
   let anstallning: string | null = null;
   let kostnadsstalle: string | null = null;
 
@@ -222,6 +233,8 @@ function scanArtRows(lines: Line[]): ScannadArtRad[] {
     const m = text.match(artLineRe);
     if (m?.[1]) {
       currentArt = m[1];
+      vantarPaDatarad =
+        !dateRangeAnywhereRe.test(text) && !beloppRe.test(text);
       const rest = text.slice(currentArt.length);
       const normalized = /^\s/.test(rest)
         ? text
@@ -230,13 +243,13 @@ function scanArtRows(lines: Line[]): ScannadArtRad[] {
       continue;
     }
 
-    // Some specs split certain ART rows across multiple lines, where the amount row starts with the date range.
-    // We only attach date-range continuations for known arts to avoid over-grouping unrelated lines.
+    // Raden som bär datum och belopp för en art vars egen rad saknade dem.
     if (
       currentArt &&
-      artWithDateRangeContinuations.has(currentArt) &&
-      dateRangeLineRe.test(text)
+      dateRangeLineRe.test(text) &&
+      (vantarPaDatarad || artWithDateRangeContinuations.has(currentArt))
     ) {
+      vantarPaDatarad = false;
       out.push({ raw: `${currentArt} ${text}`, anstallning, kostnadsstalle });
       continue;
     }

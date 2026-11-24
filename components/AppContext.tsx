@@ -58,7 +58,8 @@ export type SavedMonth = {
   kompHoursWeekend: number;                      // komp-övertid helg (art312)
   kompByDate?: Record<string, number>;            // datum → komptimmar (art31101/31201 där de finns, annars art311/312)
   kompPayout?: boolean;                          // laborera: ta ut komp kontant i bruttolönen
-  sjukByDate: Record<string, number>;            // datum → sjuktimmar (art80001)
+  sjukByDate: Record<string, number>;            // datum → sjuktimmar (art800 = hela frånvaron, fallback art80001)
+  sjukSekByDate?: Record<string, number>;         // datum → sjukavdrag från specen (art80001 karens + art80002 dag 2-14, negativt)
   semesterByDate: Record<string, boolean>;       // datum → semesterdag (art700)
   manualActiveDates?: string[];                   // aktiva dagar utan AO-pass
   maskinDates?: string[];                         // datum med maskinskötseltillägg (art2101)

@@ -96,15 +96,21 @@ export type ArtSummary811 = {
  * en skillnad i stället för att tyst försvinna.
  */
 export type Lonebesked = {
-  /** Summa av art 9991, specens egen bruttolön */
+  /** Summa av art 9991, specens egen bruttolön. Endast för jämförelse. */
   bruttoFranSpec: number | null;
-  /** Summan av de inkomstarter appen tolkar */
+  /** Summan av de inkomstarter appen tolkar — det här är bruttolönen. */
   bruttoBerakat: number;
+  /**
+   * bruttoBerakat − bruttoFranSpec. Noll när vi tolkat varenda krona.
+   * Är den skild från noll har vi missat en art (eller tolkat en fel), och
+   * det ska synas i stället för att döljas bakom specens egen siffra.
+   */
+  bruttoAvvikelse?: number;
   /** Skatt (9001 + 9002 + 90016) — negativ */
   skatt: number;
   /** Fackföreningsavgift, måltidsavdrag m.m. — negativa */
   ovrigaAvdrag: number;
-  /** brutto + skatt + övriga avdrag */
+  /** bruttoBerakat + skatt + övriga avdrag */
   netto: number | null;
   /** Specens egen "Att utbetala" */
   attUtbetalaFranSpec?: number;
@@ -326,6 +332,27 @@ export type ArtSummary81103 = {
   sekByDateISO: Record<string, number>;
 };
 
+/**
+ * 800 "Sjukdom" — själva frånvarotiden, utan belopp.
+ *
+ * Skiljd från 80001 (karenstillfälle) och 80002 (sjuklön dag 2–14), som är
+ * avdragsraderna. Karensraden täcker bara karensfönstret — på en spec där
+ * sjukskrivningen löpte 16–21 september står 80001 bara på 16–17. Utan 800
+ * ser dagarna 18–21 ut som vanliga arbetsdagar i kalendern, eftersom art315
+ * ligger kvar som nominell tid under frånvaron.
+ *
+ * Flerdagarsrader anges som klumpsumma, precis som för VAB, därav rangesISO.
+ */
+export type ArtSummary800 = {
+  art: '800';
+  rowsCount: number;
+  datesISO: string[];
+  monthISO: string | null;
+  hoursTotal: number;
+  hoursByDateISO: Record<string, number>;
+  rangesISO: { from: string; to: string; hours: number }[];
+};
+
 export type ArtSummary80001 = {
   art: '80001';
   rowsCount: number;
@@ -342,6 +369,9 @@ export type ArtSummary80001 = {
 export type PayslipArtOverview = {
   art0?: { employeeName: string };
   art010?: ArtSummary010;
+  art800?: ArtSummary800;
+  art806?: ArtSummaryBelopp;
+  art80002?: ArtSummaryBelopp;
   art600?: ArtSummaryBelopp;
   art702?: ArtSummaryBelopp;
   artK702?: ArtSummaryBelopp;
@@ -2255,6 +2285,68 @@ export function summarizePayslipArtGroups(
     };
   };
 
+  // ── 800: Sjukdom (frånvarotid) ──────────────────────────────────────────
+  // Samma radformat som VAB (art810): "<timmar> Tim" efter datumintervallet.
+  const art800Group = artGroups.find((g) => g.art === '800');
+  if (art800Group?.rows?.length) {
+    let hoursTotal = 0;
+    const dates = new Set<string>();
+    const hoursByDateISO: Record<string, number> = {};
+    const rangesISO: { from: string; to: string; hours: number }[] = [];
+
+    for (const row of art800Group.rows) {
+      const parsed = parseArtRow(row);
+      if (!parsed?.dateFrom || !parsed.dateTo) continue;
+
+      const hours = parse810HoursFromRawRow(row);
+      if (typeof hours !== 'number' || !Number.isFinite(hours) || hours <= 0) {
+        continue;
+      }
+
+      const expanded = expandISODateRange(parsed.dateFrom, parsed.dateTo);
+      if (!expanded.length) continue;
+
+      hoursTotal += hours;
+      rangesISO.push({ from: parsed.dateFrom, to: parsed.dateTo, hours });
+
+      // Flerdagarsraderna är klumpsummor ("2026-09-17 - 2026-09-21  59,74 Tim").
+      // Den nominella tiden (art315 + plustid) ligger kvar under sjukdomen och
+      // är därför rätt vikt per dag — en jämn fördelning skulle lägga 11,9 h
+      // på en dag som bara hade 6,83 h schemalagt. rangesISO lämnas orörd så
+      // att kalendern kan vikta mot AO-tiden i stället.
+      const vikter = expanded.map(
+        (d) =>
+          (overview.art315?.hoursByDateISO?.[d] ?? 0) +
+          (overview.art483?.hoursByDateISO?.[d] ?? 0),
+      );
+      const viktSumma = vikter.reduce((s, h) => s + h, 0);
+      expanded.forEach((d, i) => {
+        const andel =
+          viktSumma > 0 ? (vikter[i] / viktSumma) * hours : hours / expanded.length;
+        dates.add(d);
+        hoursByDateISO[d] = (hoursByDateISO[d] ?? 0) + andel;
+      });
+    }
+
+    if (dates.size > 0) {
+      const datesISO = Array.from(dates).sort();
+      overview.art800 = {
+        art: '800',
+        rowsCount: art800Group.rows.length,
+        datesISO,
+        monthISO: pickBestMonthISO(datesISO),
+        hoursTotal: Math.round(hoursTotal * 100) / 100,
+        hoursByDateISO,
+        rangesISO,
+      };
+    }
+  }
+
+  const art806 = beloppsArt('806');
+  if (art806) overview.art806 = art806;
+  const art80002 = beloppsArt('80002');
+  if (art80002) overview.art80002 = art80002;
+
   const art600 = beloppsArt('600');
   if (art600) overview.art600 = art600;
   const art702 = beloppsArt('702');
@@ -2317,6 +2409,8 @@ export function summarizePayslipArtGroups(
     overview.art81001?.sekTotalFromRow ?? overview.art81001?.sekTotalComputed,
     overview.art81103?.sekTotal,
     overview.art80001?.sekTotalFromRow ?? overview.art80001?.sekTotalComputed,
+    overview.art80002?.sekTotal,
+    overview.art806?.sekTotal,
   ];
   const bruttoBerakat = inkomstArter.reduce<number>(
     (sum, v) => (typeof v === 'number' && Number.isFinite(v) ? sum + v : sum),
@@ -2344,11 +2438,19 @@ export function summarizePayslipArtGroups(
     0,
   );
 
+  // Bruttolönen är summan av de rader vi själva gått igenom — aldrig specens
+  // art9991. Att skriva ut 9991 hade dolt varje art vi missar: en spec där
+  // slutlönen inte tolkades visade ändå rätt belopp, eftersom siffran kom
+  // från specen i stället för från vår egen genomgång. 9991 läses fortfarande,
+  // men bara för att jämföras mot — avviker den har vi tappat något.
   const bruttoFranSpec = overview.art9991?.sekTotal ?? null;
-  const brutto = bruttoFranSpec ?? bruttoBerakat;
-  const netto =
-    typeof brutto === 'number'
-      ? Math.round((brutto + skatt + ovrigaAvdrag) * 100) / 100
+  const netto = Math.round((bruttoBerakat + skatt + ovrigaAvdrag) * 100) / 100;
+
+  // Öresskillnader uppstår när vi räknar timmar × á-pris i stället för att
+  // läsa radens belopp, så larmet går först vid en hel krona.
+  const bruttoAvvikelse =
+    typeof bruttoFranSpec === 'number'
+      ? Math.round((bruttoBerakat - bruttoFranSpec) * 100) / 100
       : null;
 
   const attUtbetalaFranSpec = extra?.totals?.attUtbetala;
@@ -2356,15 +2458,14 @@ export function summarizePayslipArtGroups(
   overview.lonebesked = {
     bruttoFranSpec,
     bruttoBerakat: Math.round(bruttoBerakat * 100) / 100,
+    ...(typeof bruttoAvvikelse === 'number' ? { bruttoAvvikelse } : {}),
     skatt: Math.round(skatt * 100) / 100,
     ovrigaAvdrag: Math.round(ovrigaAvdrag * 100) / 100,
     netto,
     ...(typeof attUtbetalaFranSpec === 'number'
       ? {
           attUtbetalaFranSpec,
-          ...(typeof netto === 'number'
-            ? { avvikelse: Math.round((netto - attUtbetalaFranSpec) * 100) / 100 }
-            : {}),
+          avvikelse: Math.round((netto - attUtbetalaFranSpec) * 100) / 100,
         }
       : {}),
     ...(extra?.totals?.utbetalningsdag
